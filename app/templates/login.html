@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Login — URL Shortener{% endblock %}
+
+{% block content %}
+    <div class="auth-card">
+        <h1>Login</h1>
+        <form action="{{ url_for('auth.login') }}" method="POST">
+            <p>
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+            </p>
+            <p>
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </p>
+            <button type="submit">Log in</button>
+        </form>
+        <p class="auth-alt">Don't have an account? <a href="{{ url_for('auth.register') }}">Register</a></p>
+    </div>
+{% endblock %}

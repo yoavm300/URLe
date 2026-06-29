@@ -1,15 +1,18 @@
 from flask import Blueprint, request, jsonify, url_for, redirect, flash
 from flask_login import login_required, current_user
+from sqlalchemy.exc import IntegrityError
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models.url import Url
 from app.utils.shortener import generate_short_code
+from app.utils.validators import normalize_url
 
 urls_bp = Blueprint("urls", __name__)
 
 
 @urls_bp.route("/shorten", methods=["POST"])
 @login_required
+@limiter.limit("20 per minute")
 def shorten():
     data = request.get_json(silent=True) or request.form
     original_url = (data.get("original_url") or "").strip()
@@ -20,21 +23,44 @@ def shorten():
         flash("Please enter a URL to shorten.", "danger")
         return redirect(url_for("main.index"))
 
-    short_code = generate_short_code()
-    url = Url(
-        original_url=original_url,
-        short_code=short_code,
-        user_id=current_user.id,
-    )
-    db.session.add(url)
-    db.session.commit()
+    normalized = normalize_url(original_url)
+    if normalized is None:
+        if request.is_json:
+            return jsonify({"error": "Enter a valid http or https URL (max 2048 characters)."}), 400
+        flash("Enter a valid http or https URL (max 2048 characters).", "danger")
+        return redirect(url_for("main.index"))
+    original_url = normalized
+
+    # Generate + persist with retry: under concurrency two requests can pass
+    # generate_short_code()'s pre-check with the same code, so the unique
+    # constraint is the real guard — on conflict, regenerate and try again.
+    url = None
+    for _ in range(5):
+        candidate = Url(
+            original_url=original_url,
+            short_code=generate_short_code(),
+            user_id=current_user.id,
+        )
+        db.session.add(candidate)
+        try:
+            db.session.commit()
+            url = candidate
+            break
+        except IntegrityError:
+            db.session.rollback()
+
+    if url is None:
+        if request.is_json:
+            return jsonify({"error": "Could not generate a unique short code."}), 500
+        flash("Could not create a short link. Please try again.", "danger")
+        return redirect(url_for("main.index"))
 
     if not request.is_json:
         flash("Short link created.", "success")
         return redirect(url_for("main.index"))
 
     short_url = request.host_url.rstrip("/") + url_for(
-        "main.redirect_short", short_code=short_code
+        "main.redirect_short", short_code=url.short_code
     )
 
     return (

@@ -7,6 +7,11 @@ from app.models.url import Url
 main_bp = Blueprint("main", __name__)
 
 
+@main_bp.route("/healthz")
+def healthz():
+    return {"status": "ok"}, 200
+
+
 @main_bp.route("/")
 def index():
     if current_user.is_authenticated:
@@ -25,7 +30,10 @@ def redirect_short(short_code):
     if url is None:
         abort(404)
 
-    url.clicks += 1
+    # Atomic increment at the DB level so concurrent hits don't lose updates.
+    Url.query.filter_by(short_code=short_code).update(
+        {Url.clicks: Url.clicks + 1}, synchronize_session=False
+    )
     db.session.commit()
 
     return redirect(url.original_url)

@@ -6,6 +6,7 @@
     <div class="auth-card">
         <h1>Register</h1>
         <form action="{{ url_for('auth.register') }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <p>
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" required>

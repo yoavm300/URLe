@@ -1,0 +1,25 @@
+# Runs schema creation exactly once (not per replica) — this is why create_all
+# was moved out of the app's request/worker path. Re-runnable: create_all is
+# idempotent. Run after Postgres is ready and before/around the app rollout.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: urlshortener-init-db
+  labels:
+    app: urlshortener
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: urlshortener
+        component: init-db
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-db
+          image: your-registry/urlshortener:latest   # replace with your image
+          command: ["flask", "--app", "run", "init-db"]
+          envFrom:
+            - secretRef:
+                name: urlshortener-secrets            # SECRET_KEY, DATABASE_URL

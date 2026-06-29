@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+app.db
+*.sqlite3
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+k8s/
+*.md
+.env
+.DS_Store

@@ -9,6 +9,7 @@
 
     <h2>Shorten a URL</h2>
     <form class="shorten-form" action="{{ url_for('urls.shorten') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="url" name="original_url" placeholder="https://example.com/long/link" required>
         <button type="submit">Shorten</button>
     </form>
@@ -38,6 +39,7 @@
                         <td>
                             <form action="{{ url_for('urls.delete_url_form', url_id=url.id) }}" method="POST"
                                   data-ajax-delete data-url-id="{{ url.id }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn-danger">Delete</button>
                             </form>
                         </td>

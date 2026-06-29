@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var feedback = document.getElementById('js-feedback');
     var feedbackTimer;
 
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
     function showFeedback(message, type) {
         if (!feedback) {
             return;
@@ -65,7 +68,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
             fetch('/url/' + id, {
                 method: 'DELETE',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': csrfToken
+                }
             }).then(function (res) {
                 if (!res.ok) {
                     throw new Error('request failed');

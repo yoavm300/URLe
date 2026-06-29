@@ -8,13 +8,14 @@ from flask import (
 )
 from flask_login import login_user, logout_user, login_required, current_user
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models.user import User
 
 auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])
+@limiter.limit("5 per minute", methods=["POST"])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("main.index"))
@@ -26,6 +27,10 @@ def register():
 
         if not username or not email or not password:
             flash("All fields are required.", "danger")
+            return redirect(url_for("auth.register"))
+
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "danger")
             return redirect(url_for("auth.register"))
 
         if User.query.filter_by(username=username).first():
@@ -48,6 +53,7 @@ def register():
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute", methods=["POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("main.index"))

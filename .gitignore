@@ -15,5 +15,8 @@ instance/
 # Environment
 .env
 
+# Kubernetes — never commit the filled-in Secret (the .example is fine)
+k8s/secret.yaml
+
 # OS / editor
 .DS_Store

@@ -1,3 +1,30 @@
+## Reference Standards (imported from the bootcamp repo)
+
+The maintainer's best-practice reference lives in `.claude/` (copied from the
+bootcamp curriculum repo). Work by it:
+
+- **`.claude/standards.md`** — the load-bearing sections for this app repo are
+  **§6 Code Standards** (Kubernetes: no `default` namespace, no `latest` tags,
+  resource requests/limits, labels; Terraform: typed variables, no hardcoded
+  values, outputs, no inline credentials, remote state for production; Docker:
+  pinned base images, non-root, multi-stage where relevant; CI/CD: separate
+  build/deploy stages, least privilege, no secret exposure) and
+  **§7 Security Standards** (never real credentials, secure defaults,
+  anti-patterns clearly labeled). "Default to stricter engineering practices
+  when uncertain" (§12) applies here too.
+- **`.claude/bootcamp-CLAUDE.md`** — the maintainer's operating policies carry
+  over: don't generate documentation unless asked; ask before major
+  architectural/infra/networking/security changes; answer solution-first, then
+  brief why; never run destructive commands (`terraform apply/destroy`,
+  `kubectl delete`, `helm install/upgrade`, `rm -rf`, `git push --force`,
+  `git reset --hard`) autonomously — show the command and let the user run it.
+- **`.claude/context.md`** and **`.claude/prompts/`** — curriculum-authoring
+  context, kept for reference. The curriculum-specific rules (README section
+  templates, `NN-` directory numbering, teaching progression) do **not** apply
+  to this repo; the code and security standards do.
+
+---
+
 You are building a production-structured Flask URL shortener app.
 Follow this exact project structure strictly:
 

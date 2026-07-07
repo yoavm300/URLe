@@ -1,12 +1,12 @@
 from flask import (
     Blueprint,
-    render_template,
-    redirect,
-    url_for,
-    request,
     flash,
+    redirect,
+    render_template,
+    request,
+    url_for,
 )
-from flask_login import login_user, logout_user, login_required, current_user
+from flask_login import current_user, login_required, login_user, logout_user
 
 from app.extensions import db, limiter
 from app.models.user import User

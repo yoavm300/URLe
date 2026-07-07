@@ -4,7 +4,7 @@ from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import Config
-from app.extensions import db, login_manager, csrf, limiter
+from app.extensions import csrf, db, limiter, login_manager
 
 
 def create_app(config_class=Config):
@@ -58,8 +58,8 @@ def create_app(config_class=Config):
 
 def register_blueprints(app):
     from app.routes.auth import auth_bp
-    from app.routes.urls import urls_bp
     from app.routes.main import main_bp
+    from app.routes.urls import urls_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(urls_bp)

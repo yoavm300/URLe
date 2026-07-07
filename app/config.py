@@ -4,9 +4,7 @@ basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 
 def _database_uri():
-    uri = os.environ.get(
-        "DATABASE_URL", "sqlite:///" + os.path.join(basedir, "app.db")
-    )
+    uri = os.environ.get("DATABASE_URL", "sqlite:///" + os.path.join(basedir, "app.db"))
     # Normalize Postgres URLs to the psycopg (v3) driver, which is what we ship.
     # Some hosts (Heroku, Render, Railway) hand out the legacy "postgres://"
     # form, which SQLAlchemy 1.4+ also rejects.

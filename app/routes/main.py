@@ -1,4 +1,4 @@
-from flask import Blueprint, redirect, abort, render_template
+from flask import Blueprint, abort, redirect, render_template
 from flask_login import current_user
 
 from app.extensions import db
@@ -15,11 +15,7 @@ def healthz():
 @main_bp.route("/")
 def index():
     if current_user.is_authenticated:
-        urls = (
-            Url.query.filter_by(user_id=current_user.id)
-            .order_by(Url.created_at.desc())
-            .all()
-        )
+        urls = Url.query.filter_by(user_id=current_user.id).order_by(Url.created_at.desc()).all()
         return render_template("dashboard.html", urls=urls)
     return render_template("index.html")
 

@@ -1,5 +1,5 @@
-from flask import Blueprint, request, jsonify, url_for, redirect, flash
-from flask_login import login_required, current_user
+from flask import Blueprint, flash, jsonify, redirect, request, url_for
+from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db, limiter
@@ -79,11 +79,7 @@ def shorten():
 @urls_bp.route("/urls", methods=["GET"])
 @login_required
 def list_urls():
-    urls = (
-        Url.query.filter_by(user_id=current_user.id)
-        .order_by(Url.created_at.desc())
-        .all()
-    )
+    urls = Url.query.filter_by(user_id=current_user.id).order_by(Url.created_at.desc()).all()
 
     return jsonify(
         [

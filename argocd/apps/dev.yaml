@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: urle-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: urle
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: urle
+  source:
+    repoURL: https://github.com/yoavm300/URLe.git
+    targetRevision: main
+    path: charts/urle
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: urle-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: urle
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: urle
+spec:
+  description: URLe URL shortener
+  sourceRepos:
+    - https://github.com/yoavm300/URLe.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "urle-*"
+  # Least privilege: apps may only create their own Namespace cluster-wide.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

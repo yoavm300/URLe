@@ -1,0 +1,12 @@
+image:
+  repository: redis
+  tag: "7.4.2-alpine" # pinned — no floating major tags
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

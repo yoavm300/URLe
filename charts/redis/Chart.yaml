@@ -1,0 +1,6 @@
+apiVersion: v2
+name: redis
+description: Shared rate-limit store for URLe (counters are disposable)
+type: application
+version: 1.0.0
+appVersion: "7.4.2"

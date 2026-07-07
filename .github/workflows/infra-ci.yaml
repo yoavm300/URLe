@@ -1,0 +1,65 @@
+name: infra-ci
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-ci.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-ci.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - run: terraform fmt -check -recursive infra/
+      - name: Validate every module
+        run: |
+          for module in infra/modules/*/; do
+            echo "== $module"
+            terraform -chdir="$module" init -backend=false -input=false > /dev/null
+            terraform -chdir="$module" validate
+          done
+
+  # Plan only — apply is a deliberate human action, never CI.
+  plan:
+    if: vars.AWS_PLAN_ROLE_ARN != ''
+    needs: fmt-validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC to AWS — no long-lived keys
+    strategy:
+      matrix:
+        env: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - name: Install terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            https://github.com/gruntwork-io/terragrunt/releases/download/v0.69.1/terragrunt_linux_amd64
+          chmod +x /usr/local/bin/terragrunt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Terragrunt plan (${{ matrix.env }})
+        working-directory: infra/live/${{ matrix.env }}
+        run: terragrunt run-all plan --terragrunt-non-interactive

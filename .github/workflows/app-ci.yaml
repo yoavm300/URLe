@@ -1,0 +1,69 @@
+name: app-ci
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "run.py"
+      - "requirements.txt"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - ".github/workflows/app-ci.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "run.py"
+      - "requirements.txt"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - ".github/workflows/app-ci.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.15.20
+      - run: ruff check .
+      - run: ruff format --check .
+
+  smoke-test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: App boots and /healthz returns 200
+        env:
+          SECRET_KEY: ci-smoke-test-key
+        run: |
+          python - <<'EOF'
+          from app import create_app
+
+          client = create_app().test_client()
+          resp = client.get("/healthz")
+          assert resp.status_code == 200, resp.status_code
+          print("PASS: /healthz ->", resp.status_code)
+          EOF
+
+  docker-build:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Build only — pushing happens in app-release on SemVer tags.
+      - run: docker build -t urlshortener:ci .

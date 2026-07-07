@@ -1,0 +1,47 @@
+# Runs schema creation exactly once (not per replica); re-runnable because
+# create_all is idempotent.
+#
+# Hook timing: post-install (NOT pre-install) because on a fresh install the
+# in-cluster Postgres is part of the same release — a pre-install hook would
+# wait on a database that hasn't been created yet. On install the job retries
+# until Postgres is up; on upgrades pre-upgrade guarantees schema-before-rollout.
+# Under Argo CD the argocd.argoproj.io annotations take precedence: plain Sync
+# hook in wave 1, after the datastores (wave 0) and before the app (wave 2).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "urlshortener.fullname" . }}-init-db
+  labels:
+    {{- include "urlshortener.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: {{ .Values.initDb.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "urlshortener.labels" . | nindent 8 }}
+        component: init-db
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: init-db
+          image: {{ include "urlshortener.image" . }}
+          command: ["flask", "--app", "run", "init-db"]
+          envFrom:
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

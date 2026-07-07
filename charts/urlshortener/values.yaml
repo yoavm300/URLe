@@ -1,0 +1,44 @@
+replicaCount: 3
+
+image:
+  repository: urlshortener # set to the ECR repository URL per environment
+  # SemVer only — no "latest". Empty tag falls back to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Secret is referenced by name, never templated with real values.
+# Create it out of band (kubectl / External Secrets); must contain
+# SECRET_KEY and DATABASE_URL.
+existingSecret: urlshortener-secrets
+
+config:
+  # Shared rate-limit store so limits apply across replicas (not per-pod).
+  ratelimitStorageUri: redis://redis:6379/0
+  # Trust X-Forwarded-* from the ingress so the real client IP is used.
+  trustProxy: "1"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: urlshortener.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+
+initDb:
+  # Schema creation runs exactly once per release operation (not per replica).
+  backoffLimit: 5
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    # 4 gunicorn workers + scrypt password hashing (memory-hard, ~64MB
+    # transient per call) need headroom; 256Mi OOM-kills on register.
+    memory: 512Mi

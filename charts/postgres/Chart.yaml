@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgres
+description: In-cluster PostgreSQL for URLe (dev/local; use RDS in production)
+type: application
+version: 1.0.0
+appVersion: "16.6"

@@ -1,0 +1,22 @@
+image:
+  repository: postgres
+  tag: "16.6" # pinned — no floating major tags
+  pullPolicy: IfNotPresent
+
+# Must contain POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB.
+# Created out of band — never templated with real values.
+existingSecret: urlshortener-secrets
+
+# User checked by pg_isready (matches POSTGRES_USER in the Secret).
+readinessUser: urlshortener
+
+persistence:
+  size: 1Gi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

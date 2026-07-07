@@ -1,0 +1,15 @@
+# Fixed service names so DATABASE_URL host "postgres" and the
+# redis://redis:6379/0 rate-limit URI resolve regardless of release name
+# (matches the raw k8s/ manifests this chart replaces).
+urlshortener:
+  fullnameOverride: urlshortener
+
+postgres:
+  # In-cluster Postgres for dev/local. Disabled in prod, where DATABASE_URL
+  # in the Secret points at RDS instead.
+  enabled: true
+  fullnameOverride: postgres
+
+redis:
+  enabled: true
+  fullnameOverride: redis

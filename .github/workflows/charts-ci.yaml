@@ -1,0 +1,55 @@
+name: charts-ci
+
+on:
+  pull_request:
+    paths:
+      - "charts/**"
+      - ".github/workflows/charts-ci.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/charts-ci.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: charts-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: helm lint charts/urlshortener charts/postgres charts/redis
+      - run: helm dependency build charts/urle
+      - run: helm lint charts/urle
+      - name: Render umbrella chart for both environments
+        run: |
+          helm template urle-dev charts/urle -f charts/urle/values-dev.yaml > /dev/null
+          helm template urle-prod charts/urle -f charts/urle/values-prod.yaml > /dev/null
+
+  version-bump-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Changed charts must bump their SemVer version
+        run: |
+          base=$(git merge-base "origin/$GITHUB_BASE_REF" HEAD)
+          failed=0
+          for chart in urlshortener postgres redis urle; do
+            if ! git diff --quiet "$base" -- "charts/$chart"; then
+              old=$(git show "$base:charts/$chart/Chart.yaml" 2>/dev/null | yq '.version' || echo "")
+              new=$(yq '.version' "charts/$chart/Chart.yaml")
+              if [ "$old" = "$new" ]; then
+                echo "::error::charts/$chart changed but Chart.yaml version is still $new"
+                failed=1
+              fi
+            fi
+          done
+          exit $failed

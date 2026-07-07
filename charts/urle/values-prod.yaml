@@ -1,0 +1,10 @@
+urlshortener:
+  replicaCount: 3
+  image:
+    # Set to the real ECR repository URL (output of infra/live/prod/ecr).
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/urlshortener
+  ingress:
+    host: urlshortener.example.com
+
+postgres:
+  enabled: false # prod uses RDS — DATABASE_URL in the Secret points at it

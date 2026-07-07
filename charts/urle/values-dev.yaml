@@ -1,0 +1,9 @@
+urlshortener:
+  replicaCount: 2
+  image:
+    repository: urlshortener # dev/minikube local image; ECR URL once infra is up
+  ingress:
+    host: dev.urlshortener.example.com
+
+postgres:
+  enabled: true

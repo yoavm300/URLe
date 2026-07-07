@@ -18,5 +18,19 @@ instance/
 # Kubernetes — never commit the filled-in Secret (the .example is fine)
 k8s/secret.yaml
 
+# Helm — packaged dependencies are rebuilt from file:// paths (Chart.lock is committed)
+charts/urle/charts/*.tgz
+
+# Terraform / Terragrunt
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terragrunt-cache/
+
+# Claude Code — machine-local permissions, not shared config
+.claude/settings.local.json
+
 # OS / editor
 .DS_Store

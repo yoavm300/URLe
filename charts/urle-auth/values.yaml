@@ -1,0 +1,30 @@
+replicaCount: 3
+
+image:
+  repository: urle-auth # set to the ECR repository URL per environment
+  # SemVer only — no "latest". Empty tag falls back to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Both referenced by name, never templated with real values.
+# existingSecret must contain SECRET_KEY and DATABASE_URL (create out of band /
+# External Secrets). existingConfigMap is owned by the umbrella chart
+# (charts/urle/templates/configmap.yaml) — same ConfigMap all 3 app services
+# read from, so it's referenced here rather than templated per-chart.
+existingSecret: urlshortener-secrets
+existingConfigMap: urlshortener-config
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    # 4 gunicorn workers + scrypt password hashing (memory-hard, ~64MB
+    # transient per call) need headroom; 256Mi OOM-kills on register/login.
+    memory: 512Mi

@@ -1,0 +1,68 @@
+name: app-dashboard-ci
+
+on:
+  pull_request:
+    paths:
+      - "services/dashboard/**"
+      - "shared/**"
+      - "pyproject.toml"
+      - ".github/workflows/app-dashboard-ci.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "services/dashboard/**"
+      - "shared/**"
+      - "pyproject.toml"
+      - ".github/workflows/app-dashboard-ci.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-dashboard-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.15.20
+      - run: ruff check shared/ services/dashboard/
+      - run: ruff format --check shared/ services/dashboard/
+
+  smoke-test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r services/dashboard/requirements.txt
+      - name: App boots and /healthz returns 200
+        env:
+          SECRET_KEY: ci-smoke-test-key
+          PYTHONPATH: .:services/dashboard
+        run: |
+          python - <<'EOF'
+          from app import create_app
+
+          client = create_app().test_client()
+          resp = client.get("/healthz")
+          assert resp.status_code == 200, resp.status_code
+          print("PASS: /healthz ->", resp.status_code)
+          EOF
+
+  docker-build:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Build only — pushing happens in app-dashboard-release on SemVer tags.
+      # Context is the repo root (not services/dashboard/) so the Dockerfile
+      # can COPY shared/.
+      - run: docker build -f services/dashboard/Dockerfile -t urle-dashboard:ci .

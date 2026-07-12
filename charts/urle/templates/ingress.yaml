@@ -1,0 +1,99 @@
+# Single Ingress routing to all 3 app services by path. Owned by the umbrella
+# chart (not any one service subchart) since it references all 3 Services.
+# Mirrors k8s/ingress.yaml — see that file's comments for the routing
+# rationale (pathType: Prefix matches whole /-separated segments, so e.g.
+# "/url" never swallows a short code like "/urlXaz"; RESERVED_SHORT_CODES in
+# services/dashboard/app/utils/validators.py keeps custom codes from
+# colliding with any reserved path segment below).
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: urle
+  labels:
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          # auth service: exact routes only, so it never swallows the
+          # redirect service's catch-all below.
+          - path: /login
+            pathType: Exact
+            backend:
+              service:
+                name: urle-auth
+                port:
+                  number: 80
+          - path: /register
+            pathType: Exact
+            backend:
+              service:
+                name: urle-auth
+                port:
+                  number: 80
+          - path: /logout
+            pathType: Exact
+            backend:
+              service:
+                name: urle-auth
+                port:
+                  number: 80
+
+          # dashboard service: landing page / authenticated dashboard, URL
+          # management API, and static assets (the canonical, only copy).
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /shorten
+            pathType: Exact
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /urls
+            pathType: Exact
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /url
+            pathType: Prefix
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+
+          # redirect service: catch-all for any short code. Must stay last —
+          # ingress-nginx sorts merged paths by specificity (exact/longer
+          # prefixes win) regardless of YAML order, but keeping it last here
+          # documents intent.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: urle-redirect
+                port:
+                  number: 80
+{{- end }}

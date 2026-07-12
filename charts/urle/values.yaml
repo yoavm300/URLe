@@ -1,8 +1,17 @@
-# Fixed service names so DATABASE_URL host "postgres" and the
-# redis://redis:6379/0 rate-limit URI resolve regardless of release name
-# (matches the raw k8s/ manifests this chart replaces).
-urlshortener:
-  fullnameOverride: urlshortener
+# Fixed service names so DATABASE_URL host "postgres", the
+# redis://redis:6379/0 rate-limit URI, and this chart's own Ingress rules
+# (charts/urle/templates/ingress.yaml, which hardcodes urle-auth/
+# urle-dashboard/urle-redirect as backend service names) all resolve
+# regardless of release name (matches the raw k8s/ manifests this chart
+# replaces).
+urle-auth:
+  fullnameOverride: urle-auth
+
+urle-dashboard:
+  fullnameOverride: urle-dashboard
+
+urle-redirect:
+  fullnameOverride: urle-redirect
 
 postgres:
   # In-cluster Postgres for dev/local. Disabled in prod, where DATABASE_URL
@@ -13,3 +22,18 @@ postgres:
 redis:
   enabled: true
   fullnameOverride: redis
+
+# Consumed by charts/urle/templates/configmap.yaml (shared by urle-auth and
+# urle-dashboard; urle-redirect envFrom's it too but doesn't read either key).
+config:
+  ratelimitStorageUri: redis://redis:6379/0
+  trustProxy: "1"
+
+# Consumed by charts/urle/templates/ingress.yaml — the single Ingress
+# routing to all 3 app services.
+ingress:
+  enabled: true
+  className: nginx
+  host: urle.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"

@@ -1,0 +1,14 @@
+# Shared by urle-auth and urle-dashboard (rate-limit store + trusted-proxy
+# flag); referenced by name (Values.existingConfigMap in each subchart,
+# default "urlshortener-config") rather than owned by any one service chart,
+# since it applies uniformly across services. Mirrors k8s/configmap.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urlshortener-config
+  labels:
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  RATELIMIT_STORAGE_URI: {{ .Values.config.ratelimitStorageUri | quote }}
+  TRUST_PROXY: {{ .Values.config.trustProxy | quote }}

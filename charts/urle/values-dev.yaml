@@ -1,9 +1,20 @@
-urlshortener:
+urle-auth:
   replicaCount: 2
   image:
-    repository: urlshortener # dev/minikube local image; ECR URL once infra is up
-  ingress:
-    host: dev.urlshortener.example.com
+    repository: urle-auth # dev/minikube local image; ECR URL once infra is up
+
+urle-dashboard:
+  replicaCount: 2
+  image:
+    repository: urle-dashboard # dev/minikube local image; ECR URL once infra is up
+
+urle-redirect:
+  replicaCount: 2
+  image:
+    repository: urle-redirect # dev/minikube local image; ECR URL once infra is up
+
+ingress:
+  host: dev.urle.example.com
 
 postgres:
   enabled: true

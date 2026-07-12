@@ -1,0 +1,29 @@
+replicaCount: 3
+
+image:
+  repository: urle-redirect # set to the ECR repository URL per environment
+  # SemVer only — no "latest". Empty tag falls back to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Both referenced by name, never templated with real values.
+# existingSecret must contain SECRET_KEY and DATABASE_URL (create out of band /
+# External Secrets). existingConfigMap is owned by the umbrella chart
+# (charts/urle/templates/configmap.yaml) — this service doesn't rate-limit,
+# but envFrom's the same shared ConfigMap for consistency; unused keys are
+# harmless.
+existingSecret: urlshortener-secrets
+existingConfigMap: urlshortener-config
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

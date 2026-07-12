@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "urle-redirect.fullname" . }}
+  labels:
+    {{- include "urle-redirect.labels" . | nindent 4 }}
+  annotations:
+    # App rolls out after the datastores (wave 0) and init-db job (wave 1).
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "urle-redirect.fullname" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "urle-redirect.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: urle-redirect
+          image: {{ include "urle-redirect.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.targetPort }}
+          # DATABASE_URL from the Secret; the rest from the ConfigMap.
+          envFrom:
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+            - configMapRef:
+                name: {{ .Values.existingConfigMap }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

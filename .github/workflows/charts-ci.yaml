@@ -23,8 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: helm lint charts/urlshortener charts/postgres charts/redis
-      - run: helm dependency build charts/urle
+      - run: helm lint charts/urle-auth charts/urle-dashboard charts/urle-redirect charts/postgres charts/redis
+      # "update" (not "build") since no Chart.lock is committed — it always
+      # recomputes from Chart.yaml + the file:// subchart paths, so it
+      # self-heals even if the vendored charts/urle/charts/*.tgz drift.
+      - run: helm dependency update charts/urle
       - run: helm lint charts/urle
       - name: Render umbrella chart for both environments
         run: |
@@ -42,7 +45,7 @@ jobs:
         run: |
           base=$(git merge-base "origin/$GITHUB_BASE_REF" HEAD)
           failed=0
-          for chart in urlshortener postgres redis urle; do
+          for chart in urle-auth urle-dashboard urle-redirect postgres redis urle; do
             if ! git diff --quiet "$base" -- "charts/$chart"; then
               old=$(git show "$base:charts/$chart/Chart.yaml" 2>/dev/null | yq '.version' || echo "")
               new=$(yq '.version' "charts/$chart/Chart.yaml")

@@ -405,8 +405,4 @@ live Kubernetes validation that surfaced and fixed container/runtime issues.
 It was later split from a single Flask app into the 3-service architecture
 described above (`shared/` + `services/{auth,dashboard,redirect}/`), with a
 matching follow-up pass across the Helm charts, CI/CD, and Terraform to
-describe 3 images instead of 1.
-
-**Claude Code session ID:** `6898f956-8270-4140-8daf-b7980a18fb28`
-
-_To resume that session: `claude --resume 6898f956-8270-4140-8daf-b7980a18fb28`_
+describe 3 images instead of 1._

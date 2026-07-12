@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: urle-redirect
+  namespace: urle
+  labels:
+    app: urle-redirect
+spec:
+  type: ClusterIP
+  selector:
+    app: urle-redirect
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000

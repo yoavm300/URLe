@@ -1,22 +1,91 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: urlshortener
+  name: urle
+  namespace: urle
   labels:
-    app: urlshortener
+    app: urle
   annotations:
     # Adjust to your ingress controller (this example targets ingress-nginx).
     nginx.ingress.kubernetes.io/proxy-body-size: "1m"
 spec:
   ingressClassName: nginx
   rules:
-    - host: urlshortener.example.com        # replace with your domain
+    - host: urle.local        # replace with your domain; for minikube add to /etc/hosts
       http:
         paths:
+          # auth service: exact routes only, so it never swallows the
+          # redirect service's catch-all below.
+          - path: /login
+            pathType: Exact
+            backend:
+              service:
+                name: urle-auth
+                port:
+                  number: 80
+          - path: /register
+            pathType: Exact
+            backend:
+              service:
+                name: urle-auth
+                port:
+                  number: 80
+          - path: /logout
+            pathType: Exact
+            backend:
+              service:
+                name: urle-auth
+                port:
+                  number: 80
+
+          # dashboard service: landing page / authenticated dashboard, URL
+          # management API, and static assets (the canonical, only copy).
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /shorten
+            pathType: Exact
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /urls
+            pathType: Exact
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /url
+            pathType: Prefix
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: urle-dashboard
+                port:
+                  number: 80
+
+          # redirect service: catch-all for any short code. Must stay last —
+          # ingress-nginx sorts merged paths by specificity (exact/longer
+          # prefixes win) regardless of YAML order, but keeping it last here
+          # documents intent. RESERVED_SHORT_CODES in validators.py already
+          # blocks users from picking a custom code that collides with any
+          # path segment above.
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: urlshortener
+                name: urle-redirect
                 port:
                   number: 80

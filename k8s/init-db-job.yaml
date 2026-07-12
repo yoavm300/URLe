@@ -1,24 +1,29 @@
 # Runs schema creation exactly once (not per replica) — this is why create_all
 # was moved out of the app's request/worker path. Re-runnable: create_all is
 # idempotent. Run after Postgres is ready and before/around the app rollout.
+#
+# Uses the dashboard image specifically: it's the only service that imports
+# both shared.models.user and shared.models.url, so a single db.create_all()
+# call here creates both the users and urls tables in one shot.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: urlshortener-init-db
+  name: urle-dashboard-init-db
+  namespace: urle
   labels:
-    app: urlshortener
+    app: urle-dashboard
 spec:
   backoffLimit: 5
   template:
     metadata:
       labels:
-        app: urlshortener
+        app: urle-dashboard
         component: init-db
     spec:
       restartPolicy: OnFailure
       containers:
         - name: init-db
-          image: your-registry/urlshortener:latest   # replace with your image
+          image: urle-dashboard:dev   # replace with your registry image for non-local use
           command: ["flask", "--app", "run", "init-db"]
           envFrom:
             - secretRef:

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urle-redirect
+  namespace: urle
+  labels:
+    app: urle-redirect
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: urle-redirect
+  template:
+    metadata:
+      labels:
+        app: urle-redirect
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: urle-redirect
+          image: urle-redirect:dev   # replace with your registry image for non-local use
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          # DATABASE_URL from the Secret. No RATELIMIT_STORAGE_URI needed —
+          # this service doesn't rate-limit — but envFrom the same ConfigMap
+          # for consistency; unused keys are harmless.
+          envFrom:
+            - secretRef:
+                name: urlshortener-secrets
+            - configMapRef:
+                name: urlshortener-config
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

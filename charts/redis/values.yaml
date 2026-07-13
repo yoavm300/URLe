@@ -10,3 +10,14 @@ resources:
   limits:
     cpu: 200m
     memory: 128Mi
+
+# Redis AUTH (§10 item 11). Off by default (dev/minikube); enabled in the
+# umbrella's values-prod.yaml. When on, redis-server runs with --requirepass
+# and the readiness probe authenticates via REDISCLI_AUTH. The password lives
+# in the shared Secret (created out of band in dev, via the item-10
+# ExternalSecret in prod) — the same Secret must also carry the auth'd
+# RATELIMIT_STORAGE_URI, since the umbrella ConfigMap omits it when auth is on.
+auth:
+  enabled: false
+  existingSecret: urlshortener-secrets
+  passwordKey: REDIS_PASSWORD

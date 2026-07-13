@@ -1,0 +1,27 @@
+# CPU-based autoscaling. Requires Metrics Server in-cluster (the
+# infra/modules/eks metrics-server addon) — without it the HPA reports
+# <unknown> for current utilization and never scales. Off by default; when
+# enabled the Deployment drops its static replicas field (see deployment.yaml)
+# so the two don't fight.
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "urle-auth.fullname" . }}
+  labels:
+    {{- include "urle-auth.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "urle-auth.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

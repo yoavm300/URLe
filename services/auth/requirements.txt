@@ -6,3 +6,4 @@ Flask-Limiter==4.1.1
 redis==8.0.1
 psycopg[binary]==3.3.4
 gunicorn==23.0.0
+prometheus-flask-exporter==0.23.1

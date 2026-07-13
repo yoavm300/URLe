@@ -4,7 +4,7 @@ from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from shared.config import Config
-from shared.extensions import db
+from shared.extensions import db, metrics
 
 
 def create_app(config_class=Config):
@@ -35,6 +35,14 @@ def create_app(config_class=Config):
     # no CSRF protection, no rate limiter are needed (confirmed no
     # @limiter.limit anywhere in this service's routes).
     db.init_app(app)
+
+    # Exposes GET /metrics (Prometheus format) and instruments requests.
+    # NOTE: this service is the public catch-all, so /metrics is reachable
+    # through the ingress here (Flask matches the registered /metrics route
+    # before the <short_code> converter). The NetworkPolicy scrape-allow is for
+    # in-cluster Prometheus; see §10 item 15 follow-up about denying public
+    # /metrics at the ingress or moving it to a dedicated metrics port.
+    metrics.init_app(app)
 
     register_blueprints(app)
 

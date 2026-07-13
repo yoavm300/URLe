@@ -31,13 +31,23 @@ spec:
         component: init-db
     spec:
       restartPolicy: OnFailure
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "urle-dashboard.fullname" . }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: init-db
           image: {{ include "urle-dashboard.image" . }}
           command: ["flask", "--app", "run", "init-db"]
+          # PSS 'restricted'-compliant (§10 item 17).
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           envFrom:
             - secretRef:
                 name: {{ .Values.existingSecret }}

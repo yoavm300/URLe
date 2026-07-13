@@ -18,10 +18,26 @@ spec:
       labels:
         {{- include "postgres.labels" . | nindent 8 }}
     spec:
+      # PSS 'restricted'-compliant (§10 item 17). uid/gid 999 is the postgres
+      # user in the official image; fsGroup 999 makes the PVC group-writable so
+      # the non-root process can write PGDATA. Dev-only chart (prod uses RDS).
+      # VALIDATE on first apply — a pre-existing PVC created as root may need a
+      # one-time chown, or recreate the volume.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: 5432
           envFrom:

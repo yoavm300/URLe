@@ -8,7 +8,11 @@ metadata:
     # App rolls out after the datastores (wave 0) and init-db job (wave 1).
     argocd.argoproj.io/sync-wave: "2"
 spec:
+  # HPA owns the replica count when autoscaling is on; leaving replicas set
+  # would fight the HPA on every reconcile.
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ include "urle-redirect.fullname" . }}
@@ -17,13 +21,32 @@ spec:
       labels:
         {{- include "urle-redirect.labels" . | nindent 8 }}
     spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "urle-redirect.fullname" . }}
+      {{- end }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.topologySpread.topologyKey }}
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: {{ include "urle-redirect.fullname" . }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: urle-redirect
           image: {{ include "urle-redirect.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # PSS 'restricted'-compliant (§10 item 17).
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: {{ .Values.service.targetPort }}
           # DATABASE_URL from the Secret; the rest from the ConfigMap.

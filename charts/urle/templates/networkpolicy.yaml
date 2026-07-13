@@ -1,0 +1,113 @@
+# Default-deny-ingress for the namespace plus the minimum set of allow rules
+# the app actually needs. Owned by the umbrella chart (not any one subchart)
+# since the rules reference all 3 app services plus the datastores.
+#
+# IMPORTANT: on EKS these objects are inert unless the AWS VPC CNI is told to
+# enforce NetworkPolicy (`enableNetworkPolicy=true` on the vpc-cni addon,
+# §10 item 7). Without that they are accepted and silently ignored — the
+# policy renders but nothing blocks. Mirrors nothing in k8s/ (new hardening).
+{{- if .Values.networkPolicy.enabled }}
+# 1. Deny all ingress to every pod in the namespace by default.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: urle-default-deny-ingress
+  labels:
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2. Allow the ingress controller to reach the 3 app services on their pod
+#    port (targetPort 5000). The controller runs in its own namespace,
+#    matched by the immutable kubernetes.io/metadata.name label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: urle-allow-ingress-to-apps
+  labels:
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [urle-auth, urle-dashboard, urle-redirect]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+        {{- if .Values.networkPolicy.monitoringNamespace }}
+        # Let in-cluster Prometheus (§10 item 15 ServiceMonitor) scrape
+        # /metrics on the app port; otherwise default-deny blocks the scrape.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.appPort }}
+{{- if .Values.postgres.enabled }}
+---
+# 3. Allow only the app services to reach in-cluster Postgres on 5432.
+#    (Skipped when postgres.enabled is false — prod points DATABASE_URL at RDS,
+#    which sits outside the cluster and outside NetworkPolicy scope.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: urle-allow-apps-to-postgres
+  labels:
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [urle-auth, urle-dashboard, urle-redirect]
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}
+{{- if .Values.redis.enabled }}
+---
+# 4. Allow only auth + dashboard (the rate-limited services) to reach Redis
+#    on 6379. urle-redirect doesn't rate-limit, so it's deliberately excluded.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: urle-allow-apps-to-redis
+  labels:
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [urle-auth, urle-dashboard]
+      ports:
+        - protocol: TCP
+          port: 6379
+{{- end }}
+{{- end }}

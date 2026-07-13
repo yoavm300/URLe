@@ -22,6 +22,11 @@ postgres:
 redis:
   enabled: true
   fullnameOverride: redis
+  # Redis AUTH (§10 item 11). Read by both the redis subchart (to run
+  # --requirepass) and the umbrella ConfigMap (to drop the plaintext
+  # RATELIMIT_STORAGE_URI when on). Turned on in values-prod.yaml.
+  auth:
+    enabled: false
 
 # Consumed by charts/urle/templates/configmap.yaml (shared by urle-auth and
 # urle-dashboard; urle-redirect envFrom's it too but doesn't read either key).
@@ -37,3 +42,64 @@ ingress:
   host: urle.example.com
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+  # TLS termination (§10 item 8). Off in dev; on in values-prod.yaml. When on,
+  # a cert-manager.io/cluster-issuer annotation is added and cert-manager
+  # provisions the cert into secretName. Needs cert-manager (item 1) and an
+  # ingress controller (item 2) in-cluster.
+  tls:
+    enabled: false
+    secretName: urle-tls
+    clusterIssuer: letsencrypt-prod
+
+# cert-manager ClusterIssuer, rendered by templates/clusterissuer.yaml
+# (§10 items 1 + 8). Off in dev; on in values-prod.yaml. name must match
+# ingress.tls.clusterIssuer above.
+clusterIssuer:
+  enabled: false
+  name: letsencrypt-prod
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: "" # ACME registration/expiry contact — required when enabled
+
+# Grafana dashboards (§10 item 16), shipped as sidecar-loaded ConfigMaps
+# (label grafana_dashboard: "1"). Needs kube-prometheus-stack's Grafana
+# (§10 item 6) and real /metrics data (§10 item 15). Off in dev.
+grafana:
+  dashboards:
+    enabled: false
+
+# Consumed by charts/urle/templates/networkpolicy.yaml (§10 item 9).
+# Default-deny-ingress + minimal allows. Off by default (dev/minikube where
+# the CNI may not enforce policy anyway); enabled in values-prod.yaml.
+# Enforcement on EKS additionally requires the vpc-cni enableNetworkPolicy
+# setting (§10 item 7) — without it these render but do nothing.
+networkPolicy:
+  enabled: false
+  # Namespace the ingress controller runs in (matched by its well-known
+  # kubernetes.io/metadata.name label). Aligns with §10 item 2's install.
+  ingressNamespace: ingress-nginx
+  # App pod port (subcharts' service.targetPort); the allow rule targets the
+  # pod port, not the Service port 80.
+  appPort: 5000
+  # Namespace running Prometheus (§10 item 6). When set, its scrape traffic to
+  # the app port is allowed through default-deny so ServiceMonitors work. Empty
+  # disables that allow.
+  monitoringNamespace: monitoring
+
+# Consumed by charts/urle/templates/externalsecret.yaml (§10 item 10).
+# Prod-only path that syncs `urlshortener-secrets` from AWS Secrets Manager
+# via the External Secrets Operator (§10 item 5). Off in dev, on in
+# values-prod.yaml.
+externalSecrets:
+  enabled: false
+  # IRSA role ARN from infra/live/prod/external-secrets (item 5 output) —
+  # scoped to read only urle/prod/*. Required when enabled.
+  roleArn: ""
+  # In-namespace SA the SecretStore authenticates as (IRSA-annotated above).
+  serviceAccountName: urle-external-secrets
+  storeName: urle-secretsmanager
+  targetSecret: urlshortener-secrets
+  region: eu-central-1
+  # One JSON secret in Secrets Manager holding SECRET_KEY, DATABASE_URL,
+  # REDIS_PASSWORD, RATELIMIT_STORAGE_URI as properties.
+  remoteKey: urle/prod/app
+  refreshInterval: 1h

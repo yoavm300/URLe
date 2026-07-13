@@ -28,3 +28,39 @@ resources:
     # 4 gunicorn workers + scrypt password hashing (memory-hard, ~64MB
     # transient per call) need headroom; 256Mi OOM-kills on register/login.
     memory: 512Mi
+
+# --- Availability & scaling (all default off; enable per environment) ---
+
+# HorizontalPodAutoscaler (§10 item 12). Needs Metrics Server in-cluster or
+# targets read <unknown>. When enabled the Deployment drops static replicas.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# PodDisruptionBudget (§10 item 13).
+pdb:
+  enabled: false
+  minAvailable: 1
+
+# Spread replicas across failure domains (§10 item 14). ScheduleAnyway so a
+# single-node dev cluster still schedules; hostname key for minikube, switch
+# to topology.kubernetes.io/zone on multi-AZ EKS.
+topologySpread:
+  enabled: false
+  topologyKey: kubernetes.io/hostname
+  maxSkew: 1
+
+# Dedicated ServiceAccount, no mounted token (§10 item 18).
+serviceAccount:
+  create: false
+
+# Prometheus scraping (§10 item 15). ServiceMonitor needs the Prometheus
+# Operator CRDs in-cluster (§10 item 6); off unless present. labels let the
+# operator's serviceMonitorSelector pick it up (e.g. release: prometheus).
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}

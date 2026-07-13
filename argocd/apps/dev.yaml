@@ -21,6 +21,16 @@ spec:
     server: https://kubernetes.default.svc
     namespace: urle-dev
   syncPolicy:
+    # Stamp the Pod Security Standards label onto the namespace Argo CD creates
+    # (§10 item 17). All workloads are 'restricted'-compliant (non-root,
+    # no privilege escalation, dropped caps, RuntimeDefault seccomp), so
+    # enforcement rejects any future manifest that regresses. NOTE: dev also
+    # runs the in-cluster postgres/redis — validate their non-root uids on
+    # first sync (see chart comments) since this env enforces too.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/enforce-version: latest
     automated:
       prune: true
       selfHeal: true

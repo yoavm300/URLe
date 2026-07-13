@@ -4,7 +4,7 @@ from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from shared.config import Config
-from shared.extensions import csrf, db, limiter, login_manager
+from shared.extensions import csrf, db, limiter, login_manager, metrics
 
 
 def create_app(config_class=Config):
@@ -46,6 +46,9 @@ def create_app(config_class=Config):
         os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
     )
     limiter.init_app(app)
+
+    # Exposes GET /metrics (Prometheus format) and instruments requests.
+    metrics.init_app(app)
 
     # Register blueprints
     register_blueprints(app)

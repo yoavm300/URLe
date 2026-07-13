@@ -1,0 +1,16 @@
+# Keeps at least minAvailable replicas up during voluntary disruptions
+# (node drain/upgrade) — without this a drain can evict every replica of the
+# service at once. Off by default; enabled per environment.
+{{- if .Values.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "urle-auth.fullname" . }}
+  labels:
+    {{- include "urle-auth.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: {{ include "urle-auth.fullname" . }}
+{{- end }}

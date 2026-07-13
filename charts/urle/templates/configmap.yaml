@@ -10,5 +10,12 @@ metadata:
     app.kubernetes.io/part-of: urle
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 data:
+  {{- if not .Values.redis.auth.enabled }}
+  # Plaintext (no-password) rate-limit URI, used only when Redis AUTH is off.
+  # With auth on (§10 item 11) the URI carries a credential, so it must live
+  # in the Secret instead — and it MUST NOT appear here, because the app
+  # Deployments envFrom [secretRef, configMapRef] and the later source wins,
+  # so a ConfigMap key would override the Secret's auth'd URI.
   RATELIMIT_STORAGE_URI: {{ .Values.config.ratelimitStorageUri | quote }}
+  {{- end }}
   TRUST_PROXY: {{ .Values.config.trustProxy | quote }}

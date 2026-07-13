@@ -1,0 +1,22 @@
+# Prometheus Operator scrape config for this service (§10 item 15). Requires
+# the ServiceMonitor CRD (kube-prometheus-stack, §10 item 6) — off unless that
+# is installed. Scrapes the Service's named "http" port at /metrics.
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "urle-auth.fullname" . }}
+  labels:
+    {{- include "urle-auth.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "urle-auth.fullname" . }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

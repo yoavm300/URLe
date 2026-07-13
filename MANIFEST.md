@@ -250,3 +250,495 @@ order:
 never serve `run.py` in production (gunicorn + factory only), keep
 `SECRET_KEY`'s fail-closed guard intact on `urle-auth`/`urle-dashboard`, and
 keep every deployable reference on SemVer.
+
+## 10. Hardening backlog (punch list for the executing agent)
+
+Gap audit of the current `charts/` + `infra/` state against production
+readiness. Already-verified as **not** gaps, do not redo: ECR repos are
+`image_tag_mutability = IMMUTABLE` with `scan_on_push` (`infra/modules/ecr`),
+prod RDS has `multi_az = true` and 7-day backups
+(`infra/live/prod/rds-postgres`), and all 3 app Deployments already run
+non-root with `/healthz` liveness+readiness. Ask before starting per
+`.claude/bootcamp-CLAUDE.md` (security/networking/infra changes need
+sign-off) — this section is the brief to get that sign-off against, not a
+green light to start.
+
+Ordered by **build dependency**, not by theme: within a phase, items have no
+dependency on each other and can ship in any order; across phases, each
+phase assumes every earlier phase is done. Items originally grouped as
+P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
+
+### Phase 0 — cluster-level prerequisites (install once; several later items are no-ops without these)
+
+1. `[P0]` **cert-manager install.** Not installed anywhere in `infra/`.
+   Add `infra/modules/cert-manager` (mirror `infra/modules/argocd`'s
+   Helm-install pattern), wired into `infra/live/{dev,prod}`. Unblocks
+   item 8. Verify: `kubectl get pods -n cert-manager` all `Running`.
+2. `[P0]` **ingress-nginx controller install.**
+   `charts/urle/templates/ingress.yaml` sets `ingressClassName: nginx`, but
+   **no module installs the controller** — a repo-wide search finds nginx
+   only in a code comment, so the existing Ingress is undeployed today
+   regardless of any other item here. Add `infra/modules/ingress-nginx`
+   (same Helm-install pattern, `https://kubernetes.github.io/ingress-nginx`,
+   `namespace = "ingress-nginx"`), wired into `infra/live/{dev,prod}`.
+   Unblocks the existing Ingress plus items 8 (TLS) and 9 (the NetworkPolicy
+   ingress allow-rule targets this namespace). Verify:
+   `kubectl get pods -n ingress-nginx` all `Running`; the controller Service
+   gets an external address.
+3. `[P1]` **Metrics Server EKS addon.** Not installed anywhere in
+   `infra/modules/eks`. Add it as an EKS addon
+   (`aws_eks_addon "metrics-server"`) or, if the managed addon isn't in the
+   catalog for this cluster's `cluster_version`/region, a Helm install in the
+   argocd pattern (keep that fallback ready — don't assume the addon
+   resolves). Unblocks item 12. Verify: `kubectl top pods` returns data
+   instead of erroring.
+4. `[P1]` **Cluster/node autoscaler (Karpenter).** `infra/modules/eks`
+   node groups (`eks_managed_node_groups` in `infra/modules/eks/main.tf`)
+   have fixed `node_min_size`/`node_max_size`/`node_desired_size` but
+   nothing watches for unschedulable pods and grows the group — confirmed
+   no Karpenter, Cluster Autoscaler, or equivalent anywhere in `infra/`
+   (this is the "carpenter" gap from earlier in this session: genuinely
+   absent, on minikube *and* in the EKS Terraform). Add
+   `infra/modules/karpenter` (controller IAM/IRSA role, **node IAM role +
+   instance profile, interruption SQS queue**, Helm install, a
+   `NodePool`/`EC2NodeClass` scoped to the node types/AZs from
+   `infra/modules/vpc`). **Also edit `infra/modules/vpc/main.tf`** to add a
+   `karpenter.sh/discovery = <cluster_name>` tag to the private subnets and
+   node security group — the `EC2NodeClass` selectors resolve against those
+   tags, and the VPC module currently tags subnets only with
+   `kubernetes.io/cluster/<name>=shared`, so Karpenter is **not**
+   self-contained in its own module. Preferred over Cluster Autoscaler for
+   new builds since it provisions per-pod rather than per-ASG. Without this,
+   item 12's HPA can request replicas that then sit `Pending` forever once
+   the fixed node group is full — do this **before** item 12. Verify: scale
+   a Deployment past current node capacity and confirm a new node joins
+   within Karpenter's provisioning window.
+5. `[P0]` **External Secrets Operator + IRSA install.** No
+   `infra/modules/external-secrets` and no IRSA role for it exist anywhere
+   in the repo. Add the operator install (Helm-installed like `argocd`)
+   and an IRSA role scoped to read only the `urle/prod/*` Secrets Manager
+   path. Unblocks item 10. Verify: `kubectl get pods -n external-secrets`
+   all `Running`; the IRSA role's trust policy resolves to the operator's
+   ServiceAccount.
+6. `[P2]` **kube-prometheus-stack install.** Zero references to
+   `prometheus`/`grafana` anywhere in this repo outside this manifest. Add
+   a self-contained `infra/modules/kube-prometheus-stack` (same Helm-install
+   pattern) + `infra/live/{dev,prod}/monitoring/terragrunt.hcl` — gives
+   Prometheus, Alertmanager, node-exporter, kube-state-metrics, and Grafana
+   in one shot. A GitOps `argocd/apps/monitoring.yaml` route is **not**
+   reachable as-is: the app-of-apps bootstrap in `infra/modules/argocd/main.tf`
+   includes only `{projects/*.yaml,apps/${var.environment}.yaml}`, so a new
+   Application file is never synced unless that glob is widened first —
+   default to the self-contained module unless you widen the glob
+   deliberately. Unblocks items 15–16. Verify: `kubectl get pods -n
+   monitoring` all `Running`; Grafana reachable via port-forward with the
+   default dashboards loaded.
+7. `[P0]` **VPC-CNI NetworkPolicy enforcement.** The AWS VPC CNI does **not**
+   enforce `NetworkPolicy` objects unless `enableNetworkPolicy=true` is set on
+   the `vpc-cni` addon (or Calico is installed) — so item 9's policies would
+   be accepted and silently ignored, and its verify step would falsely "pass
+   by omission." Set `cluster_addons.vpc-cni.configuration_values` with
+   `enableNetworkPolicy = "true"` in `infra/modules/eks/main.tf`. Unblocks
+   item 9. Verify: after item 9 lands, a disallowed pod actually **fails** to
+   reach `postgres:5432` (rather than succeeding because nothing enforces).
+
+### Phase 1 — security hardening
+
+8. `[P0]` **TLS on the Ingress.** `charts/urle/templates/ingress.yaml` has
+   no `tls:` block; `charts/urle/values.yaml` `ingress.annotations` has no
+   `cert-manager.io/cluster-issuer`. Add a `tls.enabled`/`secretName`
+   value, the `tls:` stanza, and the cluster-issuer annotation. Depends on
+   items 1 (cert-manager) and 2 (an actual ingress controller to terminate
+   TLS). Verify: `helm template charts/urle -f charts/urle/values-prod.yaml`
+   shows a populated `tls:` block; `kubectl get certificate` is `Ready`
+   post-apply.
+9. `[P0]` **NetworkPolicy — default-deny + explicit allows.** No
+   `NetworkPolicy` object exists anywhere under `charts/`. Add
+   default-deny-ingress per namespace plus allow rules: ingress-nginx →
+   `urle-{auth,dashboard,redirect}`; `urle-{auth,dashboard,redirect}` →
+   `postgres:5432`; `urle-{auth,dashboard}` → `redis:6379`. Owned by the
+   umbrella chart (`charts/urle/templates/`, same reasoning as the shared
+   ConfigMap/Ingress — these span multiple subcharts). Depends on item 7
+   (without CNI enforcement the policy is a silent no-op) and assumes item
+   2's `ingress-nginx` namespace for the ingress allow-rule. Verify: a pod
+   outside the allow list (e.g. `kubectl run test --rm -it --image=busybox`)
+   can't reach `postgres:5432`.
+10. `[P0]` **Prod secrets path.** No `ExternalSecret` CRD usage anywhere —
+    today prod has no documented way to actually get `urlshortener-secrets`
+    into the cluster. Add **both** an `ExternalSecret` template **and** a
+    `(Cluster)SecretStore` (the `ExternalSecret`'s `secretStoreRef` must
+    point at a store wired to Secrets Manager via item 5's IRSA SA, or the
+    CRD reconciles to an error) in `charts/urle`, gated by a values flag
+    (off for dev, on for prod where `postgres.enabled: false`). Depends on
+    item 5. Verify: deleting the K8s Secret in prod causes External Secrets
+    to recreate it within its refresh interval, no manual `kubectl create
+    secret` needed.
+11. `[P0]` **Redis auth.** `charts/redis` has no `requirepass`; anything
+    in-cluster can read/flush the rate-limit store. Add `requirepass`
+    sourced from `existingSecret` (extend `urlshortener-secrets` with a
+    `REDIS_PASSWORD` key) and pass `--requirepass` in
+    `charts/redis/templates/deployment.yaml`. **Two things the naive
+    approach gets wrong:** (1) the readiness probe (`redis-cli ping`) will
+    return `NOAUTH` once auth is on and the pod never goes Ready — make it
+    auth-aware (`redis-cli -a $(REDIS_PASSWORD) ping` or set `REDISCLI_AUTH`);
+    (2) do **not** put `redis://:$(REDIS_PASSWORD)@redis:6379/0` in the
+    umbrella ConfigMap — `$(VAR)` is never expanded for `envFrom`-injected
+    ConfigMap values (only for `env:` entries with an explicit `value:`), so
+    the app would receive a literal, unexpanded string. Instead carry the
+    fully-formed URI in the Secret (it already flows through each app
+    Deployment's `secretRef` envFrom): in prod via item 10's ExternalSecret,
+    in dev via the manually-created Secret. Bump `charts/redis/Chart.yaml`
+    and the umbrella. Verify: `redis-cli -h redis ping` without auth fails
+    with `NOAUTH`; app rate-limiting still works.
+
+### Phase 2 — resilience & scale
+
+12. `[P1]` **HorizontalPodAutoscaler for the 3 app charts.** Replica
+    counts are static (`replicaCount` in each `values-{dev,prod}.yaml`);
+    nothing reacts to load, and `urle-redirect` is the stated hot path.
+    Add `templates/hpa.yaml` to each of
+    `charts/urle-{auth,dashboard,redirect}`, gated by an
+    `autoscaling.enabled`/`minReplicas`/`maxReplicas`/`targetCPUUtilization`
+    value block. Depends on items 3 (Metrics Server, for CPU metrics) and 4
+    (Karpenter, or scaled-up replicas sit `Pending`). Verify: `kubectl get
+    hpa` shows non-zero current/target metrics.
+13. `[P1]` **PodDisruptionBudget for the 3 app charts.** A node drain can
+    currently evict every replica of a service at once. Add
+    `templates/pdb.yaml` (`minAvailable: 1` or `50%`) to each app chart.
+    No dependency. Verify: `kubectl drain` on a node running all replicas
+    of one service is blocked until it can maintain the budget.
+14. `[P1]` **Spread replicas across nodes.** No `podAntiAffinity` or
+    `topologySpreadConstraints` in any of the 3 Deployment templates —
+    replicas can land on the same node. Add a `topologySpreadConstraints`
+    block keyed on `topology.kubernetes.io/zone` (or
+    `kubernetes.io/hostname` on minikube-sized clusters where zone spread
+    doesn't apply) with `whenUnsatisfiable: ScheduleAnyway` so it doesn't
+    block scheduling on a small dev cluster. No dependency. Verify:
+    `kubectl get pods -o wide` shows replicas on distinct nodes in a
+    multi-node cluster.
+
+### Phase 3 — observability
+
+15. `[P2]` **Metrics endpoint + ServiceMonitor.** None of the 3 Flask
+    services expose `/metrics` (grepped `services/` — no
+    `prometheus_flask_exporter` or equivalent). App-code change, not just
+    a chart change: add the exporter to each service's `requirements.txt`
+    and wire it in each `create_app()`, then add a `ServiceMonitor`
+    template per app chart gated by a `metrics.serviceMonitor.enabled`
+    flag. Depends on item 6. Verify: `curl` the pod's `/metrics` returns
+    Prometheus-format output; `kubectl get servicemonitor` picks it up
+    when the flag is on.
+16. `[P2]` **Grafana dashboards for URLe.** Add per-service dashboards
+    (request rate/latency/error rate for the 3 app services, redirect
+    click-through) as ConfigMaps carrying the `grafana_dashboard: "1"`
+    label so kube-prometheus-stack's sidecar auto-loads them — versioned
+    in `charts/urle/templates/`, not hand-imported through the UI.
+    Depends on items 6 and 15 (dashboards need real `/metrics` data to be
+    worth building).
+
+### Phase 4 — policy & access hardening
+
+17. `[P2]` **Namespace Pod Security Standards.**
+    `argocd/apps/{dev,prod}.yaml` use `syncOptions: [CreateNamespace=true]`,
+    which creates a bare namespace with no
+    `pod-security.kubernetes.io/enforce` label — non-root today is
+    convention (each Deployment's own `securityContext`), not
+    cluster-enforced. Add `spec.syncPolicy.managedNamespaceMetadata.labels:
+    {pod-security.kubernetes.io/enforce: restricted}` to both Application
+    manifests. No dependency, but do this **last** among the chart changes
+    so it enforces against an already-compliant final state rather than
+    blocking earlier phases mid-rollout. Verify: a manifest with a
+    root-running container is rejected at apply time, not just at
+    chart-review time.
+18. `[P2]` **Dedicated ServiceAccounts.** All pods currently run under
+    each namespace's `default` ServiceAccount. Add a `ServiceAccount` per
+    app chart (`templates/serviceaccount.yaml`) with
+    `automountServiceAccountToken: false` (none of the 3 services call the
+    K8s API), referenced from each Deployment's
+    `spec.template.spec.serviceAccountName`. No dependency. Verify:
+    `kubectl get sa` shows one per service, not just `default`.
+
+### Phase 5 — process (not chart/infra work — flag for the user, don't just do it)
+
+19. `[P3]` **The documented PR-based release flow has never run.** §5 says
+    `app-<service>-release.yaml` opens a PR to bump chart versions on
+    every `vX.Y.Z` tag push, but `git tag -l` is empty and `git log` shows
+    every commit going straight to `main` — no branch has ever existed, so
+    this path is unverified. Needs: branch protection on `main` requiring
+    the CI workflows as required status checks, then an actual `v0.1.0`
+    tag push to confirm the 3 release workflows open working PRs and that
+    the "3 conflicting PRs" tradeoff noted in §5 behaves as described.
+20. `[P3]` **Git/GitHub collaboration practice is untested** — no merge
+    conflict has ever been resolved in this repo, no PR has ever been
+    reviewed (bootcamp modules `01-git/*/03.1-commit-fixes`,
+    `01-git/*/04.1-merge-conflicts`, `02-github/*/03.1-pr-conflicts`).
+    Informational only — nothing to build, just noting the subject has no
+    footprint here the way the tooling-heavy domains do.
+
+## 11. Execution plan for §10 items 1–18 (implemented by Opus 4.8)
+
+**Build status:** items 1–18 implemented. Chart-level items (8–18) were
+verified locally with `helm lint`/`helm template` (+ `py_compile` for the app
+code); charts bumped to 1.1.0. Phase 0 Terraform (items 1–7) was written and
+is `terraform fmt`-clean, but is **not** `validate`/`plan`/`apply`-verified —
+that needs an AWS-connected machine with terraform (module output names,
+provider wiring, and the version-sensitive Karpenter submodule are the things
+to check on first `terragrunt plan`). Items 19–20 are excluded (process
+decisions, not engineering work). All corrections from the earlier callout
+audit (A–G) are folded into the numbered items below.
+
+**Conventions this plan follows**, derived from reading the actual repo:
+
+- Cluster-level installs mirror `infra/modules/argocd/`: a module with
+  `main.tf` (a pinned `helm_release`), `variables.tf`, `versions.tf`
+  (`hashicorp/helm ~> 2.16`), `providers.tf` (the `helm` provider
+  authenticated via `aws eks get-token` exec), `outputs.tf` — plus one
+  Terragrunt unit per env under `infra/live/{dev,prod}/<name>/terragrunt.hcl`
+  with a `dependency "eks"` block (and `mock_outputs` for `validate`/`plan`).
+  The AWS provider is auto-generated by the root `infra/live/terragrunt.hcl`
+  `generate "provider"` block, so IAM-creating modules don't declare it
+  themselves.
+- Cross-cutting K8s objects (span more than one subchart) live in
+  `charts/urle/templates/`, gated by a `values.yaml` flag, exactly like
+  `ingress.yaml`/`configmap.yaml`.
+- Per-service K8s objects live in `charts/urle-{auth,dashboard,redirect}/templates/`,
+  gated by that chart's own `values.yaml`, using the existing helpers
+  (`include "urle-auth.fullname"`, the `app: <fullname>` selector label).
+- Pod selector label is `app: urle-auth` / `app: urle-dashboard` /
+  `app: urle-redirect` / `app: postgres` / `app: redis` (from `_helpers.tpl`
+  + `fullnameOverride`s).
+- Every chart edit must bump that chart's `version` in `Chart.yaml` (§6 +
+  `charts-ci.yaml` enforces it); umbrella-chart template edits bump
+  `charts/urle/Chart.yaml`.
+
+### Phase 0 — cluster-level prerequisites
+
+Items 1–7 touch different modules/live units — fully parallelizable.
+
+- **Item 1 (cert-manager).** New `infra/modules/cert-manager/{main,variables,versions,providers,outputs}.tf`
+  — `helm_release "cert-manager"` (`https://charts.jetstack.io`, pinned
+  version, `namespace = "cert-manager"`, `create_namespace = true`, values
+  `installCRDs: true`). Copy `providers.tf` verbatim from
+  `infra/modules/argocd/providers.tf`. New
+  `infra/live/{dev,prod}/cert-manager/terragrunt.hcl` mirroring
+  `infra/live/dev/argocd/terragrunt.hcl` (`dependency "eks"` with mock
+  outputs). Add a `ClusterIssuer` via `charts/urle/templates/clusterissuer.yaml`
+  gated by a flag (keeps the ACME email/host env-valued, GitOps-consistent)
+  rather than templating it into the Helm release. Verify:
+  `kubectl get pods -n cert-manager` all `Running`;
+  `kubectl get clusterissuer` `Ready=True`. Unblocks item 8.
+- **Item 2 (ingress-nginx controller).** New
+  `infra/modules/ingress-nginx/{main,variables,versions,providers,outputs}.tf`
+  — `helm_release "ingress-nginx"` (`https://kubernetes.github.io/ingress-nginx`,
+  pinned, `namespace = "ingress-nginx"`, `create_namespace = true`). New
+  `infra/live/{dev,prod}/ingress-nginx/terragrunt.hcl` (argocd pattern).
+  The existing `charts/urle/templates/ingress.yaml` sets
+  `ingressClassName: nginx` but nothing installs the controller — a repo-wide
+  search finds nginx only in a code comment, so the Ingress is undeployed
+  today. Unblocks the existing Ingress plus items 8 (TLS termination) and 9
+  (its ingress allow-rule targets the `ingress-nginx` namespace). Verify:
+  `kubectl get pods -n ingress-nginx` all `Running`; the controller Service
+  gets an external address.
+- **Item 3 (Metrics Server).** Edit `infra/modules/eks/main.tf` — add
+  `cluster_addons = { metrics-server = { most_recent = true } }` to the
+  `terraform-aws-modules/eks` module block. The managed addon is
+  version/region-dependent — if it isn't in the catalog for this cluster's
+  `cluster_version`, fall back to a Helm module in the argocd pattern (keep
+  that fallback ready rather than assuming the addon resolves). Verify:
+  `kubectl top pods` returns data. Unblocks item 12.
+- **Item 4 (Karpenter).** New `infra/modules/karpenter/{main,variables,versions,providers,outputs}.tf`
+  — controller IRSA role (via `dependency.eks.outputs.oidc_provider_arn`,
+  already an EKS output), node IAM role + instance profile, interruption
+  SQS queue, `helm_release "karpenter"` (OCI
+  `oci://public.ecr.aws/karpenter/karpenter`, pinned), a `NodePool` +
+  `EC2NodeClass` scoped to instance types/AZs from `infra/live/*/env.hcl`.
+  Karpenter is **not** self-contained in its own module: also edit
+  `infra/modules/vpc/main.tf` to add `karpenter.sh/discovery = var.cluster_name`
+  to `private_subnet_tags` and the node security group — the `EC2NodeClass`
+  `subnetSelectorTerms`/`securityGroupSelectorTerms` resolve against those
+  tags, and the VPC module currently tags subnets only with
+  `kubernetes.io/cluster/<name>=shared`. New
+  `infra/live/{dev,prod}/karpenter/terragrunt.hcl` with `dependency "eks"`
+  and `dependency "vpc"`. Verify: scale a Deployment past current node
+  capacity, confirm a new node joins (`kubectl get nodes -w`). Must precede
+  item 12 — otherwise HPA replicas sit `Pending`.
+- **Item 5 (External Secrets Operator + IRSA).** New
+  `infra/modules/external-secrets/{main,variables,versions,providers,outputs}.tf`
+  — `helm_release "external-secrets"` (`https://charts.external-secrets.io`,
+  pinned, `namespace = "external-secrets"`, `create_namespace = true`) +
+  IRSA role (OIDC trust to the operator's SA, policy scoped to
+  `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:*:*:secret:urle/prod/*`),
+  SA annotation `eks.amazonaws.com/role-arn` set via Helm values. New
+  `infra/live/{dev,prod}/external-secrets/terragrunt.hcl`. Verify:
+  `kubectl get pods -n external-secrets` all `Running`; IRSA trust policy
+  resolves (`aws iam get-role`). Unblocks item 10.
+- **Item 6 (kube-prometheus-stack).** New self-contained
+  `infra/modules/kube-prometheus-stack/` Helm module +
+  `infra/live/{dev,prod}/monitoring/terragrunt.hcl` (same pattern as item
+  1). Do **not** use an `argocd/apps/monitoring.yaml` route unless you first
+  widen the app-of-apps bootstrap glob in `infra/modules/argocd/main.tf`
+  (currently `{projects/*.yaml,apps/${var.environment}.yaml}`, so a new
+  Application file is never synced). Verify: `kubectl get pods -n monitoring`
+  all `Running`; Grafana reachable via port-forward with default dashboards
+  loaded. Unblocks items 15, 16.
+- **Item 7 (VPC-CNI NetworkPolicy enforcement).** Edit
+  `infra/modules/eks/main.tf` — set `cluster_addons.vpc-cni.configuration_values`
+  to `jsonencode({ enableNetworkPolicy = "true" })`. The AWS VPC CNI does not
+  enforce `NetworkPolicy` objects without this (or Calico), so item 9's
+  policies would be accepted and silently ignored. Verify: after item 9
+  lands, a disallowed pod genuinely fails to reach `postgres:5432` (not
+  "passes" because nothing enforces). Unblocks item 9.
+
+### Phase 1 — security hardening
+
+Items 8–11 touch different files — parallelizable, subject to the noted
+dependencies.
+
+- **Item 8 (TLS on Ingress, needs items 1 + 2).** Edit
+  `charts/urle/templates/ingress.yaml` — add a
+  `{{- if .Values.ingress.tls.enabled }}` `tls:` stanza
+  (`hosts: [{{ .Values.ingress.host }}]`,
+  `secretName: {{ .Values.ingress.tls.secretName }}`). Edit
+  `charts/urle/values.yaml` (`ingress.tls.enabled: false` + `secretName`)
+  and `charts/urle/values-prod.yaml` (`enabled: true`,
+  `secretName: urle-tls`, `cert-manager.io/cluster-issuer` annotation —
+  prod only, dev stays off). Bump `charts/urle/Chart.yaml`. Verify:
+  `helm template charts/urle -f charts/urle/values.yaml -f charts/urle/values-prod.yaml`
+  shows a populated `tls:` block; post-apply `kubectl get certificate` is
+  `Ready`.
+- **Item 9 (NetworkPolicy default-deny + allows, needs item 7).** New
+  `charts/urle/templates/networkpolicy.yaml` (umbrella-owned) gated by
+  `networkPolicy.enabled`: default-deny-ingress (empty `podSelector`,
+  `policyTypes: [Ingress]`) plus allows — ingress-nginx namespace → `app in
+  {urle-auth,urle-dashboard,urle-redirect}:5000`; app pods → `app:
+  postgres:5432`; `urle-auth`/`urle-dashboard` → `app: redis:6379`. Edit
+  `charts/urle/values.yaml` + enable in `values-prod.yaml`. Bump
+  `charts/urle/Chart.yaml`. Enforcement requires item 7 (the VPC-CNI addon
+  setting) — without it the policy is a silent no-op — and the ingress
+  allow-rule assumes item 2's `ingress-nginx` namespace. Verify:
+  `kubectl run test --rm -it --image=busybox -n urle-prod -- nc -zv postgres
+  5432` fails/times out.
+- **Item 10 (prod secrets path, needs item 5).** New
+  `charts/urle/templates/externalsecret.yaml` gated by
+  `externalSecrets.enabled` (off dev, on prod), templating **both** an
+  `ExternalSecret` (target `urlshortener-secrets`, keys `SECRET_KEY`,
+  `DATABASE_URL`, and — with item 11 — the password-bearing
+  `RATELIMIT_STORAGE_URI` / `REDIS_PASSWORD`, from `urle/prod/*` in Secrets
+  Manager) **and** a `(Cluster)SecretStore` wired to Secrets Manager via
+  item 5's IRSA SA. The store is not optional — the `ExternalSecret`'s
+  `secretStoreRef` has nothing to point at without it and the CRD reconciles
+  to an error. Edit `charts/urle/values.yaml` + `values-prod.yaml`. Bump
+  `charts/urle/Chart.yaml`. Verify: `kubectl delete secret
+  urlshortener-secrets -n urle-prod` → ESO recreates it within the refresh
+  interval.
+- **Item 11 (Redis auth).** Edit `charts/redis/templates/deployment.yaml` —
+  `args: [--requirepass, $(REDIS_PASSWORD)]` sourced via `secretKeyRef`
+  from the extended `urlshortener-secrets`, and **fix the readiness probe**:
+  `redis-cli ping` returns `NOAUTH` once auth is on and the pod never goes
+  Ready, so make it auth-aware (`redis-cli -a $(REDIS_PASSWORD) ping` or set
+  `REDISCLI_AUTH`). Edit `charts/redis/values.yaml`
+  (`auth.enabled`/`existingSecret`/`passwordKey`). **Do not** put the
+  password-bearing `RATELIMIT_STORAGE_URI` in the umbrella ConfigMap —
+  `$(VAR)` is never expanded for `envFrom`-injected ConfigMap values (only
+  for `env:` entries with an explicit `value:`), so the app would receive a
+  literal `$(REDIS_PASSWORD)` string. Carry the fully-formed URI in the
+  Secret instead (it already flows through each app Deployment's `secretRef`
+  envFrom): in prod via item 10's ExternalSecret, in dev via the
+  manually-created Secret. Bump `charts/redis/Chart.yaml` and the umbrella.
+  Verify: unauthenticated `redis-cli -h redis ping` returns `NOAUTH`; app
+  rate-limiting still works.
+
+### Phase 2 — resilience & scale
+
+Items 12–14 add new per-service template files to independent charts —
+parallelizable once item 12's Phase 0 dependencies (3, 4) are met.
+
+- **Item 12 (HPA, needs items 3 + 4).** New
+  `charts/urle-{auth,dashboard,redirect}/templates/hpa.yaml` gated by
+  `autoscaling.enabled`, targeting each chart's Deployment,
+  `minReplicas`/`maxReplicas`/`averageUtilization`. Edit each `values.yaml`
+  (default off) — existing `100m` CPU requests make
+  `targetCPUUtilization` valid immediately. Bump each `Chart.yaml` +
+  umbrella dependency versions. Verify: `kubectl get hpa` shows non-`<unknown>`
+  current/target metrics.
+- **Item 13 (PodDisruptionBudget).** New
+  `charts/urle-{auth,dashboard,redirect}/templates/pdb.yaml`
+  (`minAvailable: 1` or `50%`, selector `app: <fullname>`), gated by
+  `pdb.enabled`. Edit each `values.yaml`; bump each `Chart.yaml` +
+  umbrella. Verify: `kubectl drain` on a node running all replicas of one
+  service is blocked until the budget can be maintained.
+- **Item 14 (topology spread).** Edit each
+  `charts/urle-{auth,dashboard,redirect}/templates/deployment.yaml` — add
+  `topologySpreadConstraints` under `spec.template.spec`, keyed on
+  `topology.kubernetes.io/zone` (values-driven fallback to
+  `kubernetes.io/hostname` for single-zone dev), `whenUnsatisfiable:
+  ScheduleAnyway`, `labelSelector: {app: <fullname>}`. Edit each
+  `values.yaml` (so dev can differ from prod); bump each `Chart.yaml` +
+  umbrella. Verify: `kubectl get pods -o wide` shows replicas on distinct
+  nodes in a multi-node cluster.
+
+### Phase 3 — observability
+
+- **Item 15 (/metrics + ServiceMonitor, needs item 6).** App code first:
+  edit `services/{auth,dashboard,redirect}/requirements.txt` — add
+  `prometheus-flask-exporter` (pinned); edit
+  `services/{auth,dashboard,redirect}/app/__init__.py` — instantiate the
+  exporter inside `create_app()` (the redirect service has no extensions
+  today beyond `db` — add it there too since it's the stated hot path).
+  Watch `ruff` import-sort in `app-<service>-ci.yaml`. Then chart: new
+  `charts/urle-{auth,dashboard,redirect}/templates/servicemonitor.yaml`
+  gated by `metrics.serviceMonitor.enabled`; edit each `values.yaml`; bump
+  each `Chart.yaml` + umbrella. Verify: `curl` a pod's `:5000/metrics`
+  returns Prometheus text; `kubectl get servicemonitor` lists all three
+  when enabled.
+- **Item 16 (Grafana dashboards, needs items 6 + 15).** New
+  `charts/urle/templates/grafana-dashboards.yaml` — ConfigMap(s) labeled
+  `grafana_dashboard: "1"` (sidecar auto-load), one panel set per service
+  (rate/latency/error) plus redirect click-through, gated by
+  `grafana.dashboards.enabled`. Edit `charts/urle/values.yaml`/`values-prod.yaml`;
+  bump `charts/urle/Chart.yaml`. Verify: dashboards appear in Grafana
+  without manual import, populated from real `/metrics` data.
+
+### Phase 4 — policy & access hardening
+
+- **Item 17 (namespace Pod Security Standards) — do last among chart
+  changes.** Edit `argocd/apps/dev.yaml` and `argocd/apps/prod.yaml` — add
+  `spec.syncPolicy.managedNamespaceMetadata.labels: {pod-security.kubernetes.io/enforce: restricted}`.
+  Apply only after Phases 1–3 land: `restricted` also requires
+  `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`, and
+  dropped capabilities beyond just non-root — verify the app Deployments'
+  `securityContext` satisfies these first or the label will block the
+  rollout. Verify: a manifest with a root/privileged container is rejected
+  at apply time.
+- **Item 18 (dedicated ServiceAccounts) — parallel with 17, no
+  dependency.** New `charts/urle-{auth,dashboard,redirect}/templates/serviceaccount.yaml`
+  (`automountServiceAccountToken: false`), gated by `serviceAccount.create`.
+  Edit each `deployment.yaml` (set `spec.template.spec.serviceAccountName`)
+  and `values.yaml`; bump each `Chart.yaml` + umbrella. Also add
+  `serviceAccountName` to `charts/urle-dashboard/templates/init-db-job.yaml`
+  for consistency. Verify: `kubectl get sa -n urle-prod` shows one per
+  service, not just `default`.
+
+### Corrections folded in (resolved)
+
+The grounding pass found seven places where the original punch list was
+wrong, incomplete, or improvable. All are now incorporated into the numbered
+items above — this list is kept only as a record of what changed:
+
+- **A — no ingress-nginx controller anywhere in `infra/`.** Now its own
+  Phase 0 item (item 2); the existing Ingress, TLS (item 8), and the
+  NetworkPolicy ingress allow-rule (item 9) all depend on it.
+- **B — NetworkPolicy is a silent no-op on default EKS.** Now its own Phase
+  0 item (item 7, the `vpc-cni` `enableNetworkPolicy` addon setting); item 9
+  depends on it.
+- **C — Redis auth had two concrete bugs** (`$(VAR)` not expanded from a
+  ConfigMap via `envFrom`; readiness probe breaks under `requirepass`). Both
+  fixes are in item 11.
+- **D — Karpenter needs a VPC edit** (`karpenter.sh/discovery` tags) it
+  didn't own. Now part of item 4.
+- **E — the `argocd/apps/monitoring.yaml` route is unreachable** until the
+  bootstrap glob is widened. Item 6 now defaults to a self-contained module.
+- **F — Metrics Server as a managed addon is version/region-dependent.**
+  Item 3 keeps the Helm fallback.
+- **G — item 10 needs a `(Cluster)SecretStore`, not just an
+  `ExternalSecret`.** Item 10 now templates both.

@@ -18,10 +18,43 @@ spec:
       labels:
         {{- include "redis.labels" . | nindent 8 }}
     spec:
+      # PSS 'restricted'-compliant (§10 item 17). uid/gid 999/1000 are the
+      # redis user in the official image; no persistence, so no fsGroup needed.
+      # VALIDATE on first apply — if redis-server can't start, adjust the uid.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          {{- if .Values.auth.enabled }}
+          # $(REDIS_PASSWORD) IS expanded here — k8s substitutes $(VAR) in
+          # args/command from the container env (unlike ConfigMap envFrom).
+          args: ["redis-server", "--requirepass", "$(REDIS_PASSWORD)"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.passwordKey }}
+            # redis-cli reads REDISCLI_AUTH from the environment automatically,
+            # so the readiness probe below stays plain `redis-cli ping`. An
+            # exec probe does NOT expand $(VAR), so `-a $(REDIS_PASSWORD)` in
+            # the probe would send a literal string and fail with NOAUTH.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.passwordKey }}
+          {{- end }}
           ports:
             - containerPort: 6379
           readinessProbe:

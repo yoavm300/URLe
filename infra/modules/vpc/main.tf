@@ -23,6 +23,9 @@ module "vpc" {
   private_subnet_tags = {
     "kubernetes.io/role/internal-elb"           = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    # §10 item 4: Karpenter's EC2NodeClass subnetSelectorTerms discover
+    # subnets by this tag. Harmless when Karpenter isn't installed.
+    "karpenter.sh/discovery" = var.cluster_name
   }
 
   tags = var.tags

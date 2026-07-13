@@ -1,0 +1,84 @@
+# Per-service Grafana dashboard, shipped as a ConfigMap labelled
+# grafana_dashboard: "1" so the kube-prometheus-stack Grafana sidecar
+# auto-loads it (§10 item 16) — versioned here, not hand-imported. Panels use
+# the prometheus-flask-exporter metrics (§10 item 15), so they need real
+# /metrics data to populate. Off by default; enabled in values-prod.yaml.
+{{- if .Values.grafana.dashboards.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urle-grafana-dashboards
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  urle-overview.json: |-
+    {
+      "title": "URLe — Service Overview",
+      "uid": "urle-overview",
+      "schemaVersion": 39,
+      "editable": true,
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "title": "Request rate by service (req/s)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(rate(flask_http_request_total[5m])) by (service)",
+              "legendFormat": "{{`{{ service }}`}}"
+            }
+          ]
+        },
+        {
+          "title": "p95 latency by service (s)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(flask_http_request_duration_seconds_bucket[5m])) by (le, service))",
+              "legendFormat": "{{`{{ service }}`}}"
+            }
+          ]
+        },
+        {
+          "title": "5xx error rate by service (req/s)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(rate(flask_http_request_total{status=~\"5..\"}[5m])) by (service)",
+              "legendFormat": "{{`{{ service }}`}}"
+            }
+          ]
+        },
+        {
+          "title": "Redirect click-through (302/s)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "sum(rate(flask_http_request_total{service=\"urle-redirect\", status=\"302\"}[5m]))",
+              "legendFormat": "redirects"
+            }
+          ]
+        }
+      ]
+    }
+{{- end }}

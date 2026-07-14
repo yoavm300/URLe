@@ -53,3 +53,14 @@ module "irsa" {
     read_secrets = aws_iam_policy.read_secrets.arn
   }
 }
+
+# Published so values-<env>.yaml's externalSecrets.roleArn can be cross-checked
+# against the real value; plain String — a role ARN is not a secret.
+resource "aws_ssm_parameter" "role_arn" {
+  count = var.ssm_parameter_prefix != "" ? 1 : 0
+
+  name      = "${var.ssm_parameter_prefix}/external-secrets/role-arn"
+  type      = "String"
+  value     = module.irsa.iam_role_arn
+  overwrite = true
+}

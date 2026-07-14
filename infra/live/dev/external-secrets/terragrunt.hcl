@@ -1,5 +1,5 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
@@ -30,6 +30,7 @@ inputs = {
   oidc_provider_arn = dependency.eks.outputs.oidc_provider_arn
 
   # SecretStore SA namespace + Secrets Manager path scope, per environment.
-  app_namespace       = "urle-${local.env.env}"
-  secrets_path_prefix = "urle/${local.env.env}"
+  app_namespace        = "urle-${local.env.env}"
+  secrets_path_prefix  = "urle/${local.env.env}"
+  ssm_parameter_prefix = "/urle/${local.env.env}"
 }

@@ -46,3 +46,9 @@ variable "chart_version" {
   type        = string
   default     = "0.10.7"
 }
+
+variable "ssm_parameter_prefix" {
+  description = "Prefix for the SSM parameter publishing the IRSA role ARN (empty = skip)"
+  type        = string
+  default     = ""
+}

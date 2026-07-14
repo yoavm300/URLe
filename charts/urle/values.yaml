@@ -52,11 +52,34 @@ ingress:
     clusterIssuer: letsencrypt-prod
 
 # cert-manager ClusterIssuer, rendered by templates/clusterissuer.yaml
-# (§10 items 1 + 8). Off in dev; on in values-prod.yaml. name must match
-# ingress.tls.clusterIssuer above.
+# (§10 items 1 + 8). Off in dev; prod terminates TLS at the ALB with an ACM
+# certificate instead (see values-prod.yaml), so this stays off there too.
 clusterIssuer:
   enabled: false
   name: letsencrypt-prod
+
+# Namespace ResourceQuota + per-container LimitRange defaults, rendered by
+# templates/resourcequota.yaml / templates/limitrange.yaml. Off in the base;
+# each values-<env>.yaml enables them with deliberately-sized numbers.
+resourceQuota:
+  enabled: false
+  requests:
+    cpu: "0"
+    memory: "0"
+  limits:
+    cpu: "0"
+    memory: "0"
+
+limitRange:
+  enabled: false
+  # Mirror the subcharts' own per-service defaults, so an unspecified
+  # container behaves like a service container.
+  defaultRequest:
+    cpu: 100m
+    memory: 256Mi
+  default:
+    cpu: 500m
+    memory: 512Mi
   server: https://acme-v02.api.letsencrypt.org/directory
   email: "" # ACME registration/expiry contact — required when enabled
 
@@ -77,6 +100,9 @@ networkPolicy:
   # Namespace the ingress controller runs in (matched by its well-known
   # kubernetes.io/metadata.name label). Aligns with §10 item 2's install.
   ingressNamespace: ingress-nginx
+  # VPC CIDR the ALB's direct-to-pod traffic (target-type: ip) arrives from.
+  # Empty = no ipBlock allow (dev/nginx path). Set in values-prod.yaml.
+  albSourceCidr: ""
   # App pod port (subcharts' service.targetPort); the allow rule targets the
   # pod port, not the Service port 80.
   appPort: 5000

@@ -1,0 +1,18 @@
+# Namespace ceiling (§10 item: quota). Sized deliberately per environment in
+# values-<env>.yaml — worst case of every service at HPA maxReplicas plus the
+# in-cluster databases where enabled — not left to incidental headroom.
+{{- if .Values.resourceQuota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: urle-quota
+  labels:
+    app.kubernetes.io/part-of: urle
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  hard:
+    requests.cpu: {{ .Values.resourceQuota.requests.cpu | quote }}
+    requests.memory: {{ .Values.resourceQuota.requests.memory | quote }}
+    limits.cpu: {{ .Values.resourceQuota.limits.cpu | quote }}
+    limits.memory: {{ .Values.resourceQuota.limits.memory | quote }}
+{{- end }}

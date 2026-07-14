@@ -43,6 +43,12 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+        {{- if .Values.networkPolicy.albSourceCidr }}
+        # The ALB (target-type: ip) reaches pods directly from VPC addresses —
+        # no namespace to select. Restrict to the VPC CIDR (prod only).
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.albSourceCidr }}
+        {{- end }}
         {{- if .Values.networkPolicy.monitoringNamespace }}
         # Let in-cluster Prometheus (§10 item 15 ServiceMonitor) scrape
         # /metrics on the app port; otherwise default-deny blocks the scrape.

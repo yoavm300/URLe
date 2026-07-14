@@ -14,3 +14,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ssm_parameter_prefix" {
+  description = "Prefix for the SSM parameter publishing the repository URL (empty = skip)"
+  type        = string
+  default     = ""
+}

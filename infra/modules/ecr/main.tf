@@ -31,3 +31,15 @@ resource "aws_ecr_lifecycle_policy" "this" {
     ]
   })
 }
+
+# Published for discoverability (chart values, cross-repo automation);
+# plain String — a repository URL is not a secret.
+resource "aws_ssm_parameter" "repository_url" {
+  count = var.ssm_parameter_prefix != "" ? 1 : 0
+
+  name      = "${var.ssm_parameter_prefix}/ecr/${var.name}/repository-url"
+  type      = "String"
+  value     = aws_ecr_repository.this.repository_url
+  overwrite = true
+  tags      = var.tags
+}

@@ -1,12 +1,10 @@
 name: infra-ci
 
+# Plan-on-PR only. Applies never run here — they are deliberate human
+# dispatches (infra-apply.yaml for a live environment, infra-bootstrap.yaml
+# for a cold one, infra-destroy.yaml for teardown).
 on:
   pull_request:
-    paths:
-      - "infra/**"
-      - ".github/workflows/infra-ci.yaml"
-  push:
-    branches: [main]
     paths:
       - "infra/**"
       - ".github/workflows/infra-ci.yaml"
@@ -18,14 +16,19 @@ concurrency:
   group: infra-ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TF_VERSION: "1.15.7"
+  TG_VERSION: "1.0.8"
+
 jobs:
+  # The always-on branch-protection check — works with zero AWS access.
   fmt-validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: ${{ env.TF_VERSION }}
       - run: terraform fmt -check -recursive infra/
       - name: Validate every module
         run: |
@@ -35,31 +38,130 @@ jobs:
             terraform -chdir="$module" validate
           done
 
-  # Plan only — apply is a deliberate human action, never CI.
-  plan:
-    if: vars.AWS_PLAN_ROLE_ARN != ''
+  # Plan jobs are gated on the environment actually existing (DEV_UP/PROD_UP,
+  # flipped by the bootstrap/destroy workflows): terragrunt plan genuinely
+  # fails against a torn-down environment — units doing real AWS lookups get
+  # mock dependency values that then 404 — so a hard-required plan check would
+  # block every infra PR while the environment is down for cost.
+  #
+  # Plans are PER UNIT, not `run --all plan`: run --all substitutes mock
+  # outputs for any unit sharing a batch with its dependency even when that
+  # dependency has real state, breaking the helm/kubectl provider units every
+  # time. A standalone plan inside each unit reads real dependency state.
+  plan-dev:
+    if: vars.DEV_UP == 'true'
     needs: fmt-validate
     runs-on: ubuntu-latest
+    environment: dev # OIDC sub claim — the role trusts repo:…:environment:dev
     permissions:
       contents: read
       id-token: write # OIDC to AWS — no long-lived keys
-    strategy:
-      matrix:
-        env: [dev, prod]
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
       - name: Install terragrunt
         run: |
           curl -fsSL -o /usr/local/bin/terragrunt \
-            https://github.com/gruntwork-io/terragrunt/releases/download/v0.69.1/terragrunt_linux_amd64
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64"
           chmod +x /usr/local/bin/terragrunt
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_DEV_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - name: Terragrunt plan (${{ matrix.env }})
-        working-directory: infra/live/${{ matrix.env }}
-        run: terragrunt run-all plan --terragrunt-non-interactive
+      - name: Terragrunt plan per unit (dev)
+        working-directory: infra/live/dev
+        env:
+          # Without this the plan shows the personal EKS access entry being
+          # destroyed — the CI role can't know it otherwise. Secret, not a
+          # variable: pairs the account ID with a personal IAM username.
+          ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
+        run: |
+          status=0
+          for unit in */; do
+            unit="${unit%/}"
+            [ -f "$unit/terragrunt.hcl" ] || continue
+            echo "::group::terragrunt plan - $unit"
+            (cd "$unit" && terragrunt plan --non-interactive) || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+  plan-prod:
+    if: vars.PROD_UP == 'true'
+    needs: fmt-validate
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Install terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64"
+          chmod +x /usr/local/bin/terragrunt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PROD_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Terragrunt plan per unit (prod)
+        working-directory: infra/live/prod
+        env:
+          ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
+        run: |
+          status=0
+          for unit in */; do
+            unit="${unit%/}"
+            [ -f "$unit/terragrunt.hcl" ] || continue
+            echo "::group::terragrunt plan - $unit"
+            (cd "$unit" && terragrunt plan --non-interactive) || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+  # global/ units (OIDC roles, ECR, public zone) exist from first bootstrap
+  # onward and never ride teardown cycles, so this isn't UP-flag gated — only
+  # on the roles existing at all.
+  plan-global:
+    if: vars.AWS_DEV_CI_ROLE_ARN != ''
+    needs: fmt-validate
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Install terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64"
+          chmod +x /usr/local/bin/terragrunt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Terragrunt plan per unit (global)
+        working-directory: infra/live/global
+        run: |
+          status=0
+          for unit in */; do
+            unit="${unit%/}"
+            [ -f "$unit/terragrunt.hcl" ] || continue
+            echo "::group::terragrunt plan - $unit"
+            (cd "$unit" && terragrunt plan --non-interactive) || status=1
+            echo "::endgroup::"
+          done
+          exit $status

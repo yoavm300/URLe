@@ -1,0 +1,73 @@
+name: infra-destroy
+
+# Tear down an environment for cost. Requires typing the environment name as
+# confirmation. Survivors by design: everything in infra/live/global (OIDC
+# roles, ECR images, public zone) plus destroy-excluded units (prod RDS, ACM)
+# — see the exclude blocks in those units.
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment to destroy"
+        required: true
+        type: choice
+        options: [dev, prod]
+      confirm:
+        description: "Type the environment name again to confirm"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-mutate-${{ inputs.env }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.15.7"
+  TG_VERSION: "1.0.8"
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env }} # a required reviewer on prod gates this too
+    permissions:
+      contents: read
+      id-token: write
+      actions: write # flips the <ENV>_UP repo variable
+    steps:
+      - name: Confirm target
+        if: inputs.confirm != inputs.env
+        run: |
+          echo "::error::Confirmation '${{ inputs.confirm }}' does not match environment '${{ inputs.env }}' — nothing destroyed"
+          exit 1
+      - name: Fail closed off main
+        if: github.ref_name != 'main'
+        run: |
+          echo "::error::infra-destroy must be dispatched from main (got '${{ github.ref_name }}')"
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Install terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64"
+          chmod +x /usr/local/bin/terragrunt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.env == 'dev' && vars.AWS_DEV_CI_ROLE_ARN || vars.AWS_PROD_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Terragrunt destroy
+        working-directory: infra/live/${{ inputs.env }}
+        env:
+          ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
+        run: terragrunt run --all --non-interactive -- destroy -auto-approve
+      - name: Mark environment as down (skips plan-on-PR)
+        if: always() # even a partial destroy means plans can no longer be trusted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh variable set "$(echo '${{ inputs.env }}' | tr a-z A-Z)_UP" --body "false" --repo "$GITHUB_REPOSITORY"

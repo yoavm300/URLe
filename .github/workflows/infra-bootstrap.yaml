@@ -1,0 +1,69 @@
+name: infra-bootstrap
+
+# Cold-start a torn-down environment. Deliberately NO plan step: terragrunt
+# plan genuinely fails against a cold environment (units doing real AWS
+# lookups get mock dependency values that then 404 against the live API),
+# while an ordered `run --all apply` resolves each dependency before its
+# consumers. Once the environment is up, ongoing changes go back through
+# plan-checked PRs (infra-ci.yaml) and infra-apply.yaml.
+#
+# Prerequisites (one-time, see docs/BOOTSTRAP.md): state bucket,
+# infra/live/global applied locally, repo vars/secrets set, manual SSM
+# parameters created.
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment to bootstrap"
+        required: true
+        type: choice
+        options: [dev, prod]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-mutate-${{ inputs.env }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.15.7"
+  TG_VERSION: "1.0.8"
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: write # flips the <ENV>_UP repo variable on success
+    steps:
+      - name: Fail closed off main
+        if: github.ref_name != 'main'
+        run: |
+          echo "::error::infra-bootstrap must be dispatched from main (got '${{ github.ref_name }}')"
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Install terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64"
+          chmod +x /usr/local/bin/terragrunt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.env == 'dev' && vars.AWS_DEV_CI_ROLE_ARN || vars.AWS_PROD_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Terragrunt apply (full environment, dependency order)
+        working-directory: infra/live/${{ inputs.env }}
+        env:
+          ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
+        run: terragrunt run --all --non-interactive -- apply -auto-approve
+      - name: Mark environment as up (re-enables plan-on-PR)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh variable set "$(echo '${{ inputs.env }}' | tr a-z A-Z)_UP" --body "true" --repo "$GITHUB_REPOSITORY"

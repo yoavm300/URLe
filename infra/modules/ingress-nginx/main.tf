@@ -10,8 +10,34 @@ resource "helm_release" "ingress_nginx" {
   namespace        = "ingress-nginx"
   create_namespace = true
 
-  set {
-    name  = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
-    value = "nlb"
+  # `wait` (helm default, kept) blocks until the LoadBalancer Service has a
+  # hostname — which is what the lb_hostname output reads below.
+  values = [
+    yamlencode({
+      controller = {
+        service = {
+          annotations = merge(
+            {
+              "service.beta.kubernetes.io/aws-load-balancer-type" = "nlb"
+            },
+            # Internal NLB: reachable only inside the VPC (i.e. over the VPN).
+            var.internal ? {
+              "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internal"
+            } : {}
+          )
+        }
+      }
+    })
+  ]
+}
+
+# The NLB hostname AWS assigned to the controller Service — consumed by the
+# route53-private unit for the argocd/grafana records.
+data "kubernetes_service" "controller" {
+  metadata {
+    name      = "ingress-nginx-controller"
+    namespace = helm_release.ingress_nginx.namespace
   }
+
+  depends_on = [helm_release.ingress_nginx]
 }

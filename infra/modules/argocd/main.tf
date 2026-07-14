@@ -5,6 +5,27 @@ resource "helm_release" "argocd" {
   version          = var.chart_version
   namespace        = "argocd"
   create_namespace = true
+
+  # A single `values` yaml, never `set` blocks: Helm's --set parses unescaped
+  # commas/dots in values as extra key=value pairs.
+  values = var.ingress_host == "" ? [] : [
+    yamlencode({
+      configs = {
+        params = {
+          # TLS terminates at ingress-nginx; without this the argocd-server
+          # pod redirects to its own self-signed HTTPS in a loop.
+          "server.insecure" = true
+        }
+      }
+      server = {
+        ingress = {
+          enabled          = true
+          ingressClassName = "nginx"
+          hostname         = var.ingress_host
+        }
+      }
+    })
+  ]
 }
 
 # App-of-apps bootstrap: one root Application syncing the AppProject and this

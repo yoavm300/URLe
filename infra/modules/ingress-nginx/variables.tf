@@ -23,3 +23,9 @@ variable "chart_version" {
   type        = string
   default     = "4.11.3"
 }
+
+variable "internal" {
+  description = "Provision the NLB as internal (VPC/VPN-only) instead of internet-facing"
+  type        = bool
+  default     = false
+}

@@ -1,5 +1,5 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
@@ -26,4 +26,8 @@ inputs = {
   cluster_endpoint = dependency.eks.outputs.cluster_endpoint
   cluster_ca_data  = dependency.eks.outputs.cluster_certificate_authority_data
   aws_region       = local.env.aws_region
+
+  # In prod, nginx serves only the VPN-gated admin surfaces (ArgoCD, Grafana);
+  # public app traffic goes through the ALB (alb-controller unit) instead.
+  internal = true
 }

@@ -1,5 +1,5 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
@@ -21,6 +21,22 @@ dependency "eks" {
   }
 }
 
+# Ordering-only (no outputs consumed): ArgoCD auto-syncs the app chart the
+# moment it installs, so everything the chart's resources need on a cold
+# bootstrap must exist first — the ALB controller (chart Ingress), ExternalDNS
+# (public record), the ExternalSecret backend, RDS (DATABASE_URL target), and
+# the Prometheus Operator CRDs (chart ServiceMonitors).
+dependencies {
+  paths = [
+    "../ingress-nginx",
+    "../external-secrets",
+    "../rds-postgres",
+    "../alb-controller",
+    "../external-dns",
+    "../monitoring",
+  ]
+}
+
 inputs = {
   cluster_name     = dependency.eks.outputs.cluster_name
   cluster_endpoint = dependency.eks.outputs.cluster_endpoint
@@ -30,4 +46,7 @@ inputs = {
 
   gitops_repo_url = "https://github.com/yoavm300/URLe.git"
   gitops_revision = "main"
+
+  # VPN-only UI — resolves via the urle-prod.internal private zone.
+  ingress_host = "argocd.urle-${local.env.env}.internal"
 }

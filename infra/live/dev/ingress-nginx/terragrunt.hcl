@@ -1,5 +1,5 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
@@ -26,4 +26,7 @@ inputs = {
   cluster_endpoint = dependency.eks.outputs.cluster_endpoint
   cluster_ca_data  = dependency.eks.outputs.cluster_certificate_authority_data
   aws_region       = local.env.aws_region
+
+  # Dev is not exposed to the internet — reachable over the VPN only.
+  internal = true
 }

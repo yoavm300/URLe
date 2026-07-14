@@ -1,5 +1,5 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
@@ -21,6 +21,14 @@ dependency "eks" {
   }
 }
 
+# Ordering-only (no outputs consumed): ArgoCD auto-syncs the app chart the
+# moment it installs, so everything the chart's resources need — the nginx
+# ingress class, the ExternalSecret backend — must exist first on a cold
+# bootstrap.
+dependencies {
+  paths = ["../ingress-nginx", "../external-secrets"]
+}
+
 inputs = {
   cluster_name     = dependency.eks.outputs.cluster_name
   cluster_endpoint = dependency.eks.outputs.cluster_endpoint
@@ -30,4 +38,7 @@ inputs = {
 
   gitops_repo_url = "https://github.com/yoavm300/URLe.git"
   gitops_revision = "main"
+
+  # VPN-only UI — resolves via the urle-dev.internal private zone.
+  ingress_host = "argocd.urle-${local.env.env}.internal"
 }

@@ -45,3 +45,9 @@ variable "gitops_revision" {
   type        = string
   default     = "main"
 }
+
+variable "ingress_host" {
+  description = "Hostname for the ArgoCD UI ingress on the internal nginx class (empty = no ingress, port-forward only)"
+  type        = string
+  default     = ""
+}

@@ -7,7 +7,6 @@ import os
 os.environ.setdefault("SECRET_KEY", "dev-secret-key-change-me")
 
 from app import create_app
-
 from shared.extensions import db
 
 # This module is the local entry point. In production, serve the factory so the

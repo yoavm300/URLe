@@ -5,3 +5,12 @@ extend-exclude = [".venv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+# Make first-party detection deterministic. Without this, ruff auto-detects
+# whether `app`/`shared` are first-party, and the result differs between the
+# CI runner and other environments — so the I001 import-order gate could pass
+# in CI but fail locally (or vice versa) on the same code. Pinning it fixes
+# `services/*/run.py` (which import both `app` and `shared`) to sort the same
+# way everywhere.
+[tool.ruff.lint.isort]
+known-first-party = ["shared", "app"]

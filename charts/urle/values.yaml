@@ -32,6 +32,8 @@ redis:
 # urle-dashboard; urle-redirect envFrom's it too but doesn't read either key).
 config:
   ratelimitStorageUri: redis://redis:6379/0
+  # Trusted proxy hops for ProxyFix (0/unset = direct). 1 = one ingress/ALB
+  # hop; prod overrides to 2 for CloudFront -> ALB.
   trustProxy: "1"
 
 # Consumed by charts/urle/templates/ingress.yaml — the single Ingress
@@ -40,6 +42,9 @@ ingress:
   enabled: true
   className: nginx
   host: urle.example.com
+  # Additional hostnames serving the same paths (prod: the CloudFront origin
+  # hostname). Empty everywhere else.
+  extraHosts: []
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "1m"
   # TLS termination (§10 item 8). Off in dev; on in values-prod.yaml. When on,
@@ -57,6 +62,8 @@ ingress:
 clusterIssuer:
   enabled: false
   name: letsencrypt-prod
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: "" # ACME registration/expiry contact — required when enabled
 
 # Namespace ResourceQuota + per-container LimitRange defaults, rendered by
 # templates/resourcequota.yaml / templates/limitrange.yaml. Off in the base;
@@ -80,8 +87,6 @@ limitRange:
   default:
     cpu: 500m
     memory: 512Mi
-  server: https://acme-v02.api.letsencrypt.org/directory
-  email: "" # ACME registration/expiry contact — required when enabled
 
 # Grafana dashboards (§10 item 16), shipped as sidecar-loaded ConfigMaps
 # (label grafana_dashboard: "1"). Needs kube-prometheus-stack's Grafana

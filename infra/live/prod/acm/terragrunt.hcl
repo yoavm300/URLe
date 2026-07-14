@@ -32,5 +32,9 @@ inputs = {
   domain_name = "urle.${dependency.public_zone.outputs.zone_name}"
   zone_id     = dependency.public_zone.outputs.zone_id
 
+  # CloudFront reaches the ALB via this stable origin hostname (ExternalDNS
+  # populates it from the Ingress) — the ALB's cert must cover it too.
+  subject_alternative_names = ["urle-origin.${dependency.public_zone.outputs.zone_name}"]
+
   ssm_parameter_prefix = "/urle/${local.env.env}"
 }

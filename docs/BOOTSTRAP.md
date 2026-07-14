@@ -149,6 +149,10 @@ so they survive teardown/bootstrap cycles:
 - `111111111111` → your account ID (ECR image repositories, IRSA role ARN)
 - `urle.example.com` → `urle.<your-domain>` (prod only; dev's host is the
   private `app.urle-dev.internal` and needs no fill)
+- `urle-origin.example.com` → `urle-origin.<your-domain>` (prod
+  `ingress.extraHosts` — the CloudFront origin hostname; the infra side
+  derives it from the zone automatically, only this chart value is filled
+  by hand and must match)
 
 Cross-check against `terragrunt output` or the `/urle/...` SSM parameters the
 modules publish.

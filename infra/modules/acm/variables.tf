@@ -3,6 +3,12 @@ variable "domain_name" {
   type        = string
 }
 
+variable "subject_alternative_names" {
+  description = "Extra FQDNs the certificate covers (e.g. the CloudFront origin hostname — the ALB serves both, and the controller auto-discovers by any matching host)"
+  type        = list(string)
+  default     = []
+}
+
 variable "zone_id" {
   description = "Public hosted zone for the DNS validation records"
   type        = string

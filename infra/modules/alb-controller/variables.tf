@@ -33,3 +33,9 @@ variable "chart_version" {
   type        = string
   default     = "1.11.0"
 }
+
+variable "cloudfront_only_sg_name" {
+  description = "Name for an ALB frontend SG admitting only CloudFront's origin-facing ranges (empty = skip). The chart's Ingress references it by this exact name via the security-groups annotation."
+  type        = string
+  default     = ""
+}

@@ -46,3 +46,48 @@ resource "helm_release" "alb_controller" {
     })
   ]
 }
+
+# --- Origin cloaking (optional) ----------------------------------------------
+# A frontend SG for the ALB that only admits CloudFront's origin-facing
+# address ranges (AWS-managed prefix list, updated by AWS as edges change).
+# Without it, anyone who discovers the ALB's own DNS name bypasses CloudFront
+# — and with it, WAF/rate rules and edge protections can't be sidestepped.
+# The Ingress opts in by name via:
+#   alb.ingress.kubernetes.io/security-groups: <this SG's name>
+#   alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
+# (the second one keeps the controller managing the ALB->pod rules, which it
+# otherwise stops doing when handed an explicit frontend SG).
+
+data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
+  count = var.cloudfront_only_sg_name != "" ? 1 : 0
+
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
+resource "aws_security_group" "cloudfront_only" {
+  count = var.cloudfront_only_sg_name != "" ? 1 : 0
+
+  name        = var.cloudfront_only_sg_name
+  description = "ALB frontend SG - HTTPS from CloudFront origin-facing ranges only"
+  vpc_id      = var.vpc_id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "cloudfront_https" {
+  count = var.cloudfront_only_sg_name != "" ? 1 : 0
+
+  security_group_id = aws_security_group.cloudfront_only[0].id
+  description       = "HTTPS from CloudFront edges"
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront_origin[0].id
+}
+
+resource "aws_vpc_security_group_egress_rule" "cloudfront_only_all" {
+  count = var.cloudfront_only_sg_name != "" ? 1 : 0
+
+  security_group_id = aws_security_group.cloudfront_only[0].id
+  description       = "ALB egress to targets and health checks"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
+}

@@ -37,8 +37,9 @@ Runtime contract (from `README.md` / `k8s/README.md`):
 - `RATELIMIT_STORAGE_URI` — set to `redis://…` so limits are shared across
   `urle-auth`/`urle-dashboard` replicas. `urle-redirect` doesn't rate-limit;
   harmless if the env var is present anyway.
-- `TRUST_PROXY=1` — required behind the ingress/ALB (trusts `X-Forwarded-*`)
-  on all 3 services.
+- `TRUST_PROXY=<hops>` — number of proxy hops to trust for `X-Forwarded-*`
+  on all 3 services: `1` behind one ingress/ALB (dev), `2` behind
+  CloudFront → ALB (prod). Unset/0 = headers ignored (direct, unspoofable).
 - Containers run as non-root UID 1000 (`runAsNonRoot` must pass) on all 3.
 - One shared Ingress routes by path: `urle-auth` owns exact
   `/login`/`/register`/`/logout`; `urle-dashboard` owns exact
@@ -103,8 +104,9 @@ Project_URLe/
 │   │   ├── route53-private/     # urle-<env>.internal zone → internal nginx NLB
 │   │   ├── route53-public-zone/ # the app domain (single source of truth)
 │   │   ├── acm/                 # DNS-validated cert for urle.<domain>
-│   │   ├── alb-controller/      # AWS Load Balancer Controller (IRSA + Helm), prod edge
-│   │   └── external-dns/        # writes urle.<domain> → ALB once the Ingress exists
+│   │   ├── alb-controller/      # AWS Load Balancer Controller (IRSA + Helm) + CloudFront-only ALB SG
+│   │   ├── external-dns/        # writes the origin record → ALB once the Ingress exists
+│   │   └── cloudfront/          # edge: TLS, /static/* caching, owns the public urle.<domain> record
 │   └── live/                    # Terragrunt live tree
 │       ├── root.hcl             # root: S3 remote state (native lockfile), provider generation
 │       ├── global/              # account-wide, never part of an env teardown
@@ -112,7 +114,7 @@ Project_URLe/
 │       ├── dev/                 # VPN-only (internal NLB)
 │       │   └── {vpc,eks,vpn,route53-private,argocd,...}/terragrunt.hcl
 │       └── prod/                # public app via ALB+ACM; admin surfaces VPN-only
-│           └── {vpc,eks,vpn,route53-private,acm,alb-controller,external-dns,rds-postgres,argocd,...}/terragrunt.hcl
+│           └── {vpc,eks,vpn,route53-private,acm,alb-controller,external-dns,cloudfront,rds-postgres,argocd,...}/terragrunt.hcl
 ├── argocd/
 │   ├── projects/urle-project.yaml
 │   └── apps/                    # one Application per env pointing at charts/urle (unchanged by the split —

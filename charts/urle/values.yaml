@@ -124,7 +124,7 @@ externalSecrets:
   serviceAccountName: urle-external-secrets
   storeName: urle-secretsmanager
   targetSecret: urlshortener-secrets
-  region: eu-central-1
+  region: us-east-1
   # One JSON secret in Secrets Manager holding SECRET_KEY, DATABASE_URL,
   # REDIS_PASSWORD, RATELIMIT_STORAGE_URI as properties.
   remoteKey: urle/prod/app

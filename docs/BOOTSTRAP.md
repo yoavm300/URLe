@@ -21,7 +21,7 @@ only ever *reads*.
 ./scripts/bootstrap-state.sh
 ```
 
-Creates `urle-tfstate-<account-id>` in `eu-central-1` (versioned, encrypted,
+Creates `urle-tfstate-<account-id>` in `us-east-1` (versioned, encrypted,
 public access blocked) and the EC2 Spot service-linked role Karpenter needs.
 Safe to re-run.
 
@@ -76,7 +76,7 @@ cd github-oidc && terragrunt output
 ```bash
 # Variables (role ARNs are safe as plain variables — they only pair the
 # account ID with a role name, no personal identity)
-gh variable set AWS_REGION            --body "eu-central-1"
+gh variable set AWS_REGION            --body "us-east-1"
 gh variable set AWS_DEV_CI_ROLE_ARN   --body "arn:aws:iam::<account-id>:role/urle-dev-cicd"
 gh variable set AWS_PROD_CI_ROLE_ARN  --body "arn:aws:iam::<account-id>:role/urle-prod-cicd"
 gh variable set AWS_RELEASE_ROLE_ARN  --body "arn:aws:iam::<account-id>:role/urle-release"

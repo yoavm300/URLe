@@ -2,5 +2,5 @@
 # teardown — `run --all destroy` from dev/ or prod/ can't reach this directory.
 locals {
   env        = "global"
-  aws_region = "eu-central-1"
+  aws_region = "us-east-1"
 }

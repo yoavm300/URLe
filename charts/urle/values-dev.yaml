@@ -5,17 +5,17 @@
 urle-auth:
   replicaCount: 2
   image:
-    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/urle-auth
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-auth
 
 urle-dashboard:
   replicaCount: 2
   image:
-    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/urle-dashboard
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-dashboard
 
 urle-redirect:
   replicaCount: 2
   image:
-    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/urle-redirect
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-redirect
 
 ingress:
   # Dev is VPN-only: resolves via the urle-dev.internal private zone record

@@ -6,7 +6,7 @@ urle-auth:
   replicaCount: 3
   image:
     # Set to the real ECR repository URL (output of infra/live/global/ecr-auth, or /urle/global/ecr/urle-auth/repository-url in SSM).
-    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/urle-auth
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-auth
   pdb:
     enabled: true
   topologySpread:
@@ -25,7 +25,7 @@ urle-dashboard:
   replicaCount: 3
   image:
     # Set to the real ECR repository URL (output of infra/live/global/ecr-dashboard, or /urle/global/ecr/urle-dashboard/repository-url in SSM).
-    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/urle-dashboard
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-dashboard
   pdb:
     enabled: true
   topologySpread:
@@ -44,7 +44,7 @@ urle-redirect:
   replicaCount: 3
   image:
     # Set to the real ECR repository URL (output of infra/live/global/ecr-redirect, or /urle/global/ecr/urle-redirect/repository-url in SSM).
-    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/urle-redirect
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-redirect
   pdb:
     enabled: true
   topologySpread:
@@ -126,7 +126,7 @@ externalSecrets:
   enabled: true
   # Real ARN from `terragrunt output` of infra/live/prod/external-secrets.
   roleArn: arn:aws:iam::111111111111:role/urle-prod-external-secrets
-  region: eu-central-1
+  region: us-east-1
 
 # Grafana dashboards on in prod (§10 item 16).
 grafana:

@@ -24,7 +24,7 @@ dependency "ingress_nginx" {
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
-    lb_hostname = "mock-nlb.elb.eu-central-1.amazonaws.com"
+    lb_hostname = "mock-nlb.elb.us-east-1.amazonaws.com"
   }
 }
 

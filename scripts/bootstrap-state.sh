@@ -7,7 +7,7 @@
 # Usage: ./scripts/bootstrap-state.sh
 set -euo pipefail
 
-REGION="eu-central-1"
+REGION="us-east-1"
 
 for tool in aws; do
   command -v "$tool" >/dev/null || { echo "ERROR: $tool not found"; exit 1; }
@@ -22,11 +22,16 @@ echo "Bucket:  ${BUCKET} (${REGION})"
 if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
   echo "State bucket already exists — skipping creation."
 else
-  # Outside us-east-1, CreateBucket requires an explicit LocationConstraint.
-  aws s3api create-bucket \
-    --bucket "$BUCKET" \
-    --region "$REGION" \
-    --create-bucket-configuration "LocationConstraint=${REGION}"
+  # us-east-1 is the one region where CreateBucket must NOT be given a
+  # LocationConstraint (the API rejects it); everywhere else requires one.
+  if [ "$REGION" = "us-east-1" ]; then
+    aws s3api create-bucket --bucket "$BUCKET" --region "$REGION"
+  else
+    aws s3api create-bucket \
+      --bucket "$BUCKET" \
+      --region "$REGION" \
+      --create-bucket-configuration "LocationConstraint=${REGION}"
+  fi
   echo "Created ${BUCKET}."
 fi
 

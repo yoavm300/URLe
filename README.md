@@ -71,11 +71,13 @@ Project_URLe/
 │           ├── redirect.py        # GET /<short_code>
 │           └── health.py          # /healthz
 │
-├── k8s/                            # raw Kubernetes manifests (see Infrastructure)
+├── k8s/                            # raw Kubernetes manifests — minikube-local reference (see Infrastructure)
 ├── charts/                         # Helm charts (see Infrastructure)
-├── infra/                          # Terraform/Terragrunt (see Infrastructure)
+├── infra/                          # Terraform/Terragrunt: modules + live/{global,dev,prod} (see Infrastructure)
 ├── argocd/                         # Argo CD Application/Project definitions
-└── .github/workflows/              # CI/CD, one pipeline pair per service
+├── docs/BOOTSTRAP.md               # one-time AWS/GitHub account setup
+├── scripts/bootstrap-state.sh      # creates the Terraform state bucket (step 1 of BOOTSTRAP.md)
+└── .github/workflows/              # CI/CD per service + infra plan/apply/bootstrap/destroy
 ```
 
 **A subtlety worth knowing if you touch `shared/models/`:** `User.urls =
@@ -240,6 +242,30 @@ PYTHONPATH=.:services/dashboard flask --app services/dashboard/run init-db
 
 ## Infrastructure
 
+### Deploying to AWS — the lifecycle at a glance
+
+After a **one-time account bootstrap** (`docs/BOOTSTRAP.md`: state bucket →
+`infra/live/global` applied locally → GitHub variables/secret/Environments →
+manual SSM SecureStrings → domain NS delegation), the entire lifecycle runs
+from the GitHub Actions tab — this project is torn down between sessions for
+cost, and that cycle is a first-class operation:
+
+| I want to… | Do this |
+|---|---|
+| Stand up a torn-down environment | Dispatch **`infra-bootstrap`** (pick `dev`/`prod`) |
+| Change live infrastructure | Open a PR (plan runs on it) → merge → dispatch **`infra-apply`** |
+| Ship a new app version | Push a `vX.Y.Z` tag → images reach ECR, chart-bump PRs open → merge → Argo CD deploys |
+| Tear an environment down | Dispatch **`infra-destroy`** (type the env name to confirm) |
+
+What survives a teardown: ECR images, the ACM certificate, the Route53 public
+zone, and everything in `infra/live/global/` — so the next bootstrap comes
+back with the previously released images and the same domain/cert.
+
+**Access model:** prod's app is public at `urle.<domain>` (ALB + ACM +
+ExternalDNS). Everything else — the dev app (`app.urle-dev.internal`) and
+ArgoCD/Grafana in both envs (`argocd.urle-<env>.internal`) — resolves only
+over the WireGuard VPN (`vpn-<env>.<domain>`, wg-easy admin UI on 443).
+
 ### Containers
 
 Each service has its own `Dockerfile` under `services/<name>/`, all
@@ -250,13 +276,14 @@ the repo root** (not the service subdirectory), so the Dockerfile can reach
 `shared/`:
 
 ```bash
-docker build -f services/auth/Dockerfile      -t your-registry/urle-auth:latest      .
-docker build -f services/dashboard/Dockerfile -t your-registry/urle-dashboard:latest .
-docker build -f services/redirect/Dockerfile  -t your-registry/urle-redirect:latest  .
-docker push your-registry/urle-auth:latest
-docker push your-registry/urle-dashboard:latest
-docker push your-registry/urle-redirect:latest
+docker build -f services/auth/Dockerfile      -t your-registry/urle-auth:1.0.0      .
+docker build -f services/dashboard/Dockerfile -t your-registry/urle-dashboard:1.0.0 .
+docker build -f services/redirect/Dockerfile  -t your-registry/urle-redirect:1.0.0  .
 ```
+
+Manual builds are for local experiments only — real images reach ECR
+exclusively through the tag-triggered release workflows (SemVer tags,
+`IMMUTABLE` repos, never `latest`; see CI/CD below).
 
 ### Kubernetes (`k8s/`)
 
@@ -348,9 +375,10 @@ is a quick, reversible way to confirm that's the cause.
   `charts/urle-dashboard` (same reasoning as the raw manifests: it's the only
   chart whose image has both models). Under Argo CD it runs as a sync-wave-1
   hook, after the datastores (wave 0) and before the app Deployments (wave 2).
-- No `Chart.lock` is committed (it's `.gitignore`d) — `helm dependency
-  update charts/urle` regenerates it and the vendored subchart archives from
-  `Chart.yaml` on demand, so there's nothing to keep in sync by hand.
+- `Chart.lock` **is committed** (Argo CD needs it to run `helm dependency
+  build` reproducibly); only the vendored `charts/urle/charts/*.tgz` archives
+  are `.gitignore`d — `helm dependency update charts/urle` rebuilds those
+  from the `file://` paths on demand.
 
 ```bash
 helm dependency update charts/urle
@@ -425,4 +453,12 @@ live Kubernetes validation that surfaced and fixed container/runtime issues.
 It was later split from a single Flask app into the 3-service architecture
 described above (`shared/` + `services/{auth,dashboard,redirect}/`), with a
 matching follow-up pass across the Helm charts, CI/CD, and Terraform to
-describe 3 images instead of 1._
+describe 3 images instead of 1.
+
+A final AWS-automation pass (2026-07, modeled on the maintainer's
+`chess-infrastructure` reference) made the whole lifecycle run from GitHub
+Actions: provisioned OIDC CI identity, the `infra/live/global/` tier that
+survives teardown cycles, plan-on-PR / dispatch-apply / no-plan-bootstrap
+workflows, the WireGuard + private-zone access layer, and the prod
+ALB + ACM + ExternalDNS public edge. Goals and rationale live in
+`MANIFEST.md` §8a; the one-time setup in `docs/BOOTSTRAP.md`.

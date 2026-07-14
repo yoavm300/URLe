@@ -43,6 +43,18 @@ variable "node_desired_size" {
   default     = 2
 }
 
+variable "admin_principal_arn" {
+  description = "Personal IAM principal granted cluster admin via an access entry (empty = skip). Pass via ADMIN_PRINCIPAL_ARN env var — without it, kubectl/helm against the cluster fails with 'the server has asked for the client to provide credentials'."
+  type        = string
+  default     = ""
+}
+
+variable "cicd_principal_arn" {
+  description = "CI role granted cluster admin via an access entry (empty = skip); required for the helm/kubectl provider units to apply from GitHub Actions"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Extra tags for all resources"
   type        = map(string)

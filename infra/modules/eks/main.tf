@@ -10,9 +10,41 @@ module "eks" {
 
   cluster_endpoint_public_access = true
 
-  # Grants the identity running terraform admin on the cluster,
-  # which the argocd unit needs to install the Helm releases.
-  enable_cluster_creator_admin_permissions = true
+  # No implicit "whoever applies becomes admin" — every admin principal is an
+  # explicit access entry below. IAM permissions alone only cover the AWS API
+  # (eks:CreateCluster etc.); the helm/kubectl providers in the argocd unit
+  # authenticate against the cluster's *Kubernetes* API, which is what these
+  # entries grant.
+  enable_cluster_creator_admin_permissions = false
+
+  access_entries = merge(
+    var.admin_principal_arn == "" ? {} : {
+      personal = {
+        principal_arn = var.admin_principal_arn
+        policy_associations = {
+          admin = {
+            policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            access_scope = {
+              type = "cluster"
+            }
+          }
+        }
+      }
+    },
+    var.cicd_principal_arn == "" ? {} : {
+      cicd = {
+        principal_arn = var.cicd_principal_arn
+        policy_associations = {
+          admin = {
+            policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            access_scope = {
+              type = "cluster"
+            }
+          }
+        }
+      }
+    }
+  )
 
   cluster_addons = {
     # §10 item 3: HPA (item 12) needs a metrics source. If this addon isn't in

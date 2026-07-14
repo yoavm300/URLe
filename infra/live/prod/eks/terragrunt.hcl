@@ -1,5 +1,5 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
@@ -20,10 +20,25 @@ dependency "vpc" {
   }
 }
 
+dependency "github_oidc" {
+  config_path = "../../global/github-oidc"
+
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs = {
+    dev_ci_role_arn  = "arn:aws:iam::111111111111:role/mock-dev-cicd"
+    prod_ci_role_arn = "arn:aws:iam::111111111111:role/mock-prod-cicd"
+  }
+}
+
 inputs = {
   cluster_name = local.env.cluster_name
   vpc_id       = dependency.vpc.outputs.vpc_id
   subnet_ids   = dependency.vpc.outputs.private_subnet_ids
+
+  # Set locally and as a GitHub Actions secret — see docs/BOOTSTRAP.md.
+  # Empty means no personal access entry, and kubectl/helm will be locked out.
+  admin_principal_arn = get_env("ADMIN_PRINCIPAL_ARN", "")
+  cicd_principal_arn  = dependency.github_oidc.outputs.prod_ci_role_arn
 
   node_instance_types = ["t3.large"]
   node_min_size       = 2

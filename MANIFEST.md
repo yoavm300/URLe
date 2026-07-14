@@ -59,7 +59,7 @@ Runtime contract (from `README.md` / `k8s/README.md`):
 |---|---|
 | Cloud | **AWS** |
 | Cluster | **EKS** (managed node groups) |
-| Registry | **ECR** — one repo per service: `urle-<env>/urle-auth`, `urle-<env>/urle-dashboard`, `urle-<env>/urle-redirect` |
+| Registry | **ECR** — one account-wide repo per service (`urle-auth`, `urle-dashboard`, `urle-redirect`): one SemVer release feeds every environment, and repos live in `infra/live/global/` so teardowns never delete released images |
 | IaC | **Terraform** modules, orchestrated by **Terragrunt** (one live tree per environment) |
 | GitOps / CD | **Argo CD** — syncs Helm releases from this repo; no `kubectl apply` in CI |
 | Packaging | **Helm charts**, one per service, composed by an **umbrella chart** |
@@ -94,16 +94,25 @@ Project_URLe/
 ├── infra/
 │   ├── modules/                 # plain Terraform, no env-specific values
 │   │   ├── vpc/
-│   │   ├── eks/
-│   │   ├── ecr/                 # generic, parameterized by `name` — one instance per service per env
-│   │   ├── rds-postgres/        # prod database (replaces in-cluster postgres chart)
-│   │   └── argocd/              # Argo CD install + bootstrap Application
+│   │   ├── eks/                 # cluster + explicit access entries (admin + CI role)
+│   │   ├── ecr/                 # generic, parameterized by `name` — one instance per service (global)
+│   │   ├── rds-postgres/        # prod database + composer of the urle/prod/app secret
+│   │   ├── argocd/              # Argo CD install + bootstrap Application + VPN-only ingress
+│   │   ├── github-oidc/         # GitHub Actions OIDC provider + urle-{dev,prod}-cicd + urle-release roles
+│   │   ├── vpn/                 # wg-easy + Caddy on EC2 (SSM-only, split-tunnel)
+│   │   ├── route53-private/     # urle-<env>.internal zone → internal nginx NLB
+│   │   ├── route53-public-zone/ # the app domain (single source of truth)
+│   │   ├── acm/                 # DNS-validated cert for urle.<domain>
+│   │   ├── alb-controller/      # AWS Load Balancer Controller (IRSA + Helm), prod edge
+│   │   └── external-dns/        # writes urle.<domain> → ALB once the Ingress exists
 │   └── live/                    # Terragrunt live tree
-│       ├── terragrunt.hcl       # root: remote state (S3 + DynamoDB lock), provider generation
-│       ├── dev/
-│       │   └── {vpc,eks,ecr-auth,ecr-dashboard,ecr-redirect,argocd}/terragrunt.hcl
-│       └── prod/
-│           └── {vpc,eks,ecr-auth,ecr-dashboard,ecr-redirect,rds-postgres,argocd}/terragrunt.hcl
+│       ├── root.hcl             # root: S3 remote state (native lockfile), provider generation
+│       ├── global/              # account-wide, never part of an env teardown
+│       │   └── {github-oidc,ecr-auth,ecr-dashboard,ecr-redirect,route53-public-zone}/terragrunt.hcl
+│       ├── dev/                 # VPN-only (internal NLB)
+│       │   └── {vpc,eks,vpn,route53-private,argocd,...}/terragrunt.hcl
+│       └── prod/                # public app via ALB+ACM; admin surfaces VPN-only
+│           └── {vpc,eks,vpn,route53-private,acm,alb-controller,external-dns,rds-postgres,argocd,...}/terragrunt.hcl
 ├── argocd/
 │   ├── projects/urle-project.yaml
 │   └── apps/                    # one Application per env pointing at charts/urle (unchanged by the split —
@@ -117,7 +126,10 @@ Project_URLe/
     ├── app-redirect-ci.yaml
     ├── app-redirect-release.yaml
     ├── charts-ci.yaml
-    └── infra-ci.yaml
+    ├── infra-ci.yaml            # fmt/validate + per-unit plan on PRs
+    ├── infra-apply.yaml         # dispatch-only apply (plan-gated)
+    ├── infra-bootstrap.yaml     # dispatch-only cold start (no plan by design)
+    └── infra-destroy.yaml       # dispatch-only teardown (typed confirmation)
 ```
 
 ---
@@ -166,7 +178,10 @@ runs another service's pipeline. Every service's workflow also triggers on
 | `app-<service>-ci.yaml` (×3) | `services/<service>/**`, `shared/**`, `pyproject.toml` | **ruff check** + **ruff format --check** (on `shared/` + `services/<service>/`) → smoke-test (`create_app()` boots, `/healthz` returns 200) → docker build (`-f services/<service>/Dockerfile .`, repo root context) |
 | `app-<service>-release.yaml` (×3) | tag push `v*.*.*` (all 3 fire together — a release tag ships all 3 images at a matching version) | build image → push to that service's ECR repo tagged `MAJOR.MINOR.PATCH` (+ git SHA) → bump `charts/urle-<service>` `appVersion`/`version` and the umbrella chart's dependency version + umbrella `version`/`appVersion`, via PR |
 | `charts-ci.yaml` | `charts/**` | `helm lint` + `helm template` all charts; verify chart `version` was bumped |
-| `infra-ci.yaml` | `infra/**` | `terraform fmt -check`, `terraform validate`, `terragrunt plan` per changed env (plan-only in CI; apply is manual/protected) — already generic over however many Terragrunt units exist, no changes needed for the 3-repo ECR split |
+| `infra-ci.yaml` | `infra/**` | `terraform fmt -check`, `terraform validate` (always-on check) + per-unit `terragrunt plan` per env on PRs, gated by `DEV_UP`/`PROD_UP` repo variables (plan fails against a torn-down env by nature) |
+| `infra-apply.yaml` | `workflow_dispatch` (env choice) | fresh per-unit plan → `terragrunt run --all apply`; prod gated by the `prod` GitHub Environment's required reviewer |
+| `infra-bootstrap.yaml` | `workflow_dispatch` (env choice) | cold-start apply in dependency order, deliberately no plan step; flips `<ENV>_UP=true` on success |
+| `infra-destroy.yaml` | `workflow_dispatch` (env + typed confirmation) | `terragrunt run --all destroy`; ECR/ACM/public zone survive (global/ or destroy-excluded); flips `<ENV>_UP=false` |
 
 **Known tradeoff:** since all 3 release workflows fire on the same tag and
 each opens its own PR bumping `charts/urle/Chart.yaml`'s dependency list and
@@ -222,7 +237,51 @@ select = ["E", "F", "W", "I", "B", "UP"]
 | Postgres | in-cluster chart (`postgres.enabled: true`) | **RDS** via `infra/modules/rds-postgres` (`postgres.enabled: false`) |
 | Redis | in-cluster chart | in-cluster chart (ElastiCache is a later option) |
 | Secrets | `kubectl create secret` per `k8s/README.md` | AWS Secrets Manager + External Secrets (or SSM), never in git |
-| Ingress host | dev DNS name | real host set in umbrella values |
+| Ingress | internal nginx NLB, **VPN-only** (`app.urle-dev.internal`) | public **ALB + ACM** at `urle.<domain>`; ArgoCD/Grafana stay VPN-only |
+
+## 8a. AWS-compatibility & automation goals (2026-07 pass)
+
+Reference architecture: `shyrimon2000-tech/chess-infrastructure`. The goal is
+that **the entire AWS lifecycle runs from GitHub Actions** — a torn-down
+environment comes back with one workflow dispatch, and nothing but the
+one-time bootstrap (`docs/BOOTSTRAP.md`) ever requires a laptop.
+
+1. **CI identity is provisioned, not assumed.** `infra/live/global/github-oidc`
+   creates the OIDC provider + `urle-dev-cicd`/`urle-prod-cicd` (trust scoped
+   per GitHub Environment — single-branch repo, so no per-branch trust) and
+   `urle-release` (trust scoped to `v*` tags, ECR-push-only). No long-lived
+   AWS keys anywhere.
+2. **Teardown cycles are first-class.** This project is destroyed between
+   sessions for cost. Everything that must survive lives in
+   `infra/live/global/` (OIDC roles, ECR repos + released images, public
+   zone) or carries an `exclude`-from-destroy block (prod ACM). Prod RDS is
+   deliberately NOT excluded — it lives inside the prod VPC, so sparing it
+   would leave a half-destroyed, still-billing environment; the final
+   snapshot + typed confirmation + prod reviewer are the guard rails.
+3. **Plan-on-PR, apply-on-dispatch.** Per-unit `terragrunt plan` on PRs
+   (never `run --all plan` — mock-outputs break helm/kubectl provider units),
+   gated by `DEV_UP`/`PROD_UP` repo variables because plan genuinely fails
+   against a cold environment. Applies only via `workflow_dispatch`
+   (`infra-apply`), cold starts via `infra-bootstrap` (no plan by design),
+   teardown via `infra-destroy` (typed confirmation).
+4. **Single source of truth for cross-cutting values.** The app domain lives
+   only in `infra/live/global/route53-public-zone`; modules publish their
+   outputs (ECR URLs, IRSA role ARN, RDS endpoint, cert ARN, zone id) as
+   `/urle/...` SSM parameters. The only hand-filled values are the
+   name-deterministic account id + domain in the chart values (one-time,
+   teardown-stable).
+5. **Secrets: Terraform reads, never creates, bootstrap credentials.** Manual
+   SSM SecureStrings (VPN hash, RDS master password, SECRET_KEY, Redis
+   password) are composed by `infra/modules/rds-postgres` into the single
+   `urle/prod/app` Secrets Manager secret the chart's ExternalSecret consumes.
+6. **Private-by-default access.** Dev and all admin surfaces (ArgoCD,
+   Grafana) are reachable only over WireGuard (`vpn` module — SSM-managed
+   EC2, no SSH) + `urle-<env>.internal` private zones. Only prod app traffic
+   is public, via ALB + ACM auto-discovery + ExternalDNS.
+7. **Cold-start is single-pass.** ArgoCD units carry ordering-only
+   dependencies on everything the auto-synced chart needs (ALB controller,
+   ESO, RDS, monitoring CRDs); ExternalDNS resolves the "ALB doesn't exist at
+   apply time" sequencing autonomously.
 
 ## 9. Implementation order (for the executing agent)
 
@@ -495,7 +554,7 @@ audit (A–G) are folded into the numbered items below.
   authenticated via `aws eks get-token` exec), `outputs.tf` — plus one
   Terragrunt unit per env under `infra/live/{dev,prod}/<name>/terragrunt.hcl`
   with a `dependency "eks"` block (and `mock_outputs` for `validate`/`plan`).
-  The AWS provider is auto-generated by the root `infra/live/terragrunt.hcl`
+  The AWS provider is auto-generated by the root `infra/live/root.hcl`
   `generate "provider"` block, so IAM-creating modules don't declare it
   themselves.
 - Cross-cutting K8s objects (span more than one subchart) live in

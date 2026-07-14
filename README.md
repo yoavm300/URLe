@@ -367,7 +367,16 @@ all 3, but a change to one service never triggers another's pipeline):
 - **`app-<service>-ci.yaml`** — ruff check + format → smoke test (`create_app()` boots, `/healthz` returns 200) → docker build. Runs on every PR/push touching that service.
 - **`app-<service>-release.yaml`** — on a `vX.Y.Z` tag (all 3 fire together, shipping matching versions): build + push that service's image to its ECR repo, then open a PR bumping that service's chart version and the umbrella chart's dependency entry.
 - **`charts-ci.yaml`** — `helm lint` + `helm template` across all charts; verifies any changed chart bumped its `version`.
-- **`infra-ci.yaml`** — `terraform fmt`/`validate` + `terragrunt plan` per environment (plan-only; `apply` is a deliberate human action, never CI).
+- **`infra-ci.yaml`** — `terraform fmt`/`validate` (always-on branch-protection check) + per-unit `terragrunt plan` per environment on PRs. Plan jobs are gated by the `DEV_UP`/`PROD_UP` repo variables — plan genuinely fails against a torn-down environment, so a hard-required plan check would block every infra PR while an environment is down for cost.
+- **`infra-apply.yaml`** — `workflow_dispatch` only (pick dev/prod): fresh per-unit plan, then `terragrunt run --all apply`. A required reviewer on the `prod` GitHub Environment gates prod applies.
+- **`infra-bootstrap.yaml`** — `workflow_dispatch`, cold-starts a torn-down environment with **no plan step** (an ordered apply resolves dependencies a plan can only 404 against), then flips `<ENV>_UP=true`.
+- **`infra-destroy.yaml`** — `workflow_dispatch` with typed confirmation; ECR images, the ACM cert, and the public zone survive by design.
+
+All AWS access is OIDC-federated — no long-lived keys. The provider and the
+three roles (`urle-dev-cicd`/`urle-prod-cicd`, trust scoped per GitHub
+Environment; `urle-release`, trust scoped to `v*` tags, ECR-push-only
+permissions) are provisioned by `infra/live/global/github-oidc`. One-time
+account setup lives in **`docs/BOOTSTRAP.md`**.
 
 See **`MANIFEST.md`** for the full CI/CD contract, including the known
 tradeoff of 3 independent release PRs touching the same umbrella
@@ -378,13 +387,24 @@ accepted as equivalent to any other automated-PR conflict).
 
 - `infra/modules/` — plain, environment-agnostic Terraform: `vpc`, `eks`,
   `ecr` (generic, parameterized by repo name), `rds-postgres` (prod only),
-  `argocd` (bootstrap install).
-- `infra/live/{dev,prod}/` — one Terragrunt unit per module instance,
-  including **3 separate ECR units per environment**
-  (`ecr-auth`, `ecr-dashboard`, `ecr-redirect`) — one repository per service
-  image, same pattern as everything else in this split.
-- Remote state is S3 + DynamoDB locking, configured once at the root
-  `terragrunt.hcl` and inherited by every unit.
+  `argocd` (bootstrap install + app-of-apps), `ingress-nginx` (internal NLB),
+  `cert-manager`, `external-secrets`, `karpenter`, `kube-prometheus-stack`,
+  plus the AWS edge/automation set: `github-oidc` (CI identity), `vpn`
+  (wg-easy + Caddy on EC2, SSM-only), `route53-private` (`urle-<env>.internal`
+  admin zone), `route53-public-zone`, `acm`, `alb-controller`, and
+  `external-dns` (prod public edge).
+- `infra/live/global/` — account-wide units outside any environment teardown:
+  `github-oidc`, the **3 ECR units** (`ecr-auth`, `ecr-dashboard`,
+  `ecr-redirect` — account-wide because one SemVer release feeds every
+  environment, and so teardowns never delete released images), and
+  `route53-public-zone` (the single source of truth for the app domain).
+- `infra/live/{dev,prod}/` — one Terragrunt unit per module instance. Dev is
+  VPN-only (internal NLB); prod serves the public app via ALB + ACM +
+  ExternalDNS while ArgoCD/Grafana stay VPN-gated.
+- Remote state is S3 with native lockfile locking (`use_lockfile`), configured
+  once at the root `infra/live/root.hcl` and inherited by every unit; the
+  legacy DynamoDB lock table rides along until one full cycle confirms the
+  migration (see `docs/BOOTSTRAP.md`).
 
 ### Argo CD (`argocd/`)
 

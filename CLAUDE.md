@@ -25,35 +25,36 @@ bootcamp curriculum repo). Work by it:
 
 ---
 
-You are building a production-structured Flask URL shortener app.
-Follow this exact project structure strictly:
+This is a production-structured Flask URL shortener, split into 3
+independently deployable microservices (the original single-app layout is
+retired). Follow this structure strictly:
 
-url-shortener/
-app/
-  __init__.py
+Project_URLe/
+shared/                  # SQLAlchemy models, extensions, config — shared by all services
   config.py
+  extensions.py
   models/user.py
   models/url.py
-  routes/auth.py
-  routes/urls.py
-  routes/main.py
-  utils/shortener.py
-  extensions.py
-  templates/
-  static/
-run.py
-requirements.txt
+services/
+  auth/                  # /register /login /logout — owns the users table
+  dashboard/             # / /shorten /urls /url/* + static — owns URL management
+  redirect/              # GET /<short_code> — hottest path, scales independently
+    (each: app/ package with create_app(), run.py, Dockerfile, requirements.txt)
+charts/                  # Helm: one chart per service + postgres/redis + urle umbrella
+infra/                   # Terraform modules + Terragrunt live tree (global/dev/prod)
+argocd/                  # Argo CD AppProject + one Application per environment
+k8s/                     # raw manifests — minikube-local reference only
+docs/BOOTSTRAP.md        # one-time AWS/GitHub account setup
 
 Rules:
 
 Use Flask + SQLAlchemy + Flask-Login
-Use SQLite
+SQLite locally; Postgres (in-cluster dev / RDS prod) via DATABASE_URL
 Keep code modular and clean
 No monolithic files
-Use application factory pattern (create_app)
-Ensure everything runs from run.py
-
-Output must include full working code per file.
+Use application factory pattern (create_app) — one per service
+Each service runs from its own services/<name>/run.py (dev-only entrypoint)
+MANIFEST.md is the source of truth for the target infrastructure (§2, §10, §11)
 -------
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 

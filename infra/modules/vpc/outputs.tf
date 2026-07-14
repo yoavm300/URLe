@@ -12,3 +12,8 @@ output "public_subnet_ids" {
   description = "Public subnet ids (load balancers)"
   value       = module.vpc.public_subnets
 }
+
+output "vpc_cidr" {
+  description = "VPC CIDR block (VPN split-tunnel routes, NetworkPolicy egress)"
+  value       = module.vpc.vpc_cidr_block
+}

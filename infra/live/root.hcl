@@ -15,10 +15,19 @@ remote_state {
   }
 
   config = {
-    bucket         = "urle-tfstate-${get_aws_account_id()}"
-    key            = "${path_relative_to_include()}/terraform.tfstate"
-    region         = local.aws_region
-    encrypt        = true
+    bucket = "urle-tfstate-${get_aws_account_id()}"
+    # path_relative_to_include() returns OS-native separators — backslashes
+    # from a Windows apply, forward slashes from WSL/CI — which would compute
+    # two different S3 keys for the same unit. Normalize so every platform
+    # reads and writes the same state object.
+    key     = "${replace(path_relative_to_include(), "\\", "/")}/terraform.tfstate"
+    region  = local.aws_region
+    encrypt = true
+
+    # Migration to S3-native locking (Terraform >= 1.10): both mechanisms run
+    # side by side for one full plan/apply cycle, then dynamodb_table gets
+    # removed and the urle-tfstate-locks table deleted — see docs/BOOTSTRAP.md.
+    use_lockfile   = true
     dynamodb_table = "urle-tfstate-locks"
   }
 }

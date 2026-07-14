@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 ENV="${1:-dev}"
 if [ ! -d "infra/live/$ENV" ]; then
-  echo "Unknown environment '$ENV' — expected one of: $(ls infra/live/ | grep -v terragrunt.hcl | tr '\n' ' ')" >&2
+  echo "Unknown environment '$ENV' — expected one of: $(ls infra/live/ | grep -v root.hcl | tr '\n' ' ')" >&2
   exit 1
 fi
 
@@ -17,7 +17,7 @@ done
 echo "Applying as AWS identity:"
 aws sts get-caller-identity --output text --query Arn || { echo "No AWS credentials configured" >&2; exit 1; }
 
-# Note: the state bucket (urle-tfstate-<account-id>) and lock table
-# (urle-tfstate-locks) must exist; terragrunt offers to create them on first run.
+# Note: the state bucket (urle-tfstate-<account-id>) must exist —
+# run ./scripts/bootstrap-state.sh once per account (see docs/BOOTSTRAP.md).
 cd "infra/live/$ENV"
-exec terragrunt run-all apply
+exec terragrunt run --all apply

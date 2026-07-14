@@ -57,3 +57,44 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "deletion_protection" {
+  description = "Refuse instance deletion at the API level. Off only for environments that ride automated teardown cycles — the final snapshot still guards the data."
+  type        = bool
+  default     = true
+}
+
+variable "master_password_ssm_path" {
+  description = "SSM SecureString holding the master password (created manually — see docs/BOOTSTRAP.md)"
+  type        = string
+}
+
+variable "app_secret_name" {
+  description = "Secrets Manager secret this module composes for the chart's ExternalSecret (empty = skip)"
+  type        = string
+  default     = ""
+}
+
+variable "secret_key_ssm_path" {
+  description = "SSM SecureString holding the Flask SECRET_KEY (used only when app_secret_name is set)"
+  type        = string
+  default     = ""
+}
+
+variable "redis_password_ssm_path" {
+  description = "SSM SecureString holding the in-cluster Redis password (used only when app_secret_name is set)"
+  type        = string
+  default     = ""
+}
+
+variable "redis_host" {
+  description = "In-cluster Redis service name for RATELIMIT_STORAGE_URI"
+  type        = string
+  default     = "redis"
+}
+
+variable "ssm_parameter_prefix" {
+  description = "Prefix for the SSM parameters publishing the endpoint (empty = skip)"
+  type        = string
+  default     = ""
+}

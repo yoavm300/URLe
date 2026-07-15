@@ -24,11 +24,10 @@ remote_state {
     region  = local.aws_region
     encrypt = true
 
-    # Migration to S3-native locking (Terraform >= 1.10): both mechanisms run
-    # side by side for one full plan/apply cycle, then dynamodb_table gets
-    # removed and the urle-tfstate-locks table deleted — see docs/BOOTSTRAP.md.
-    use_lockfile   = true
-    dynamodb_table = "urle-tfstate-locks"
+    # S3-native locking (Terraform >= 1.10). The legacy DynamoDB lock table
+    # from the old account was never carried to this one — the dual-locking
+    # migration described in docs/BOOTSTRAP.md completed with the account move.
+    use_lockfile = true
   }
 }
 

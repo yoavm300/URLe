@@ -13,9 +13,10 @@ terraform {
 }
 
 inputs = {
-  # PLACEHOLDER — set the bare domain you actually own before applying.
+  # The bare domain (registered at the external registrar; NS delegation
+  # happens after the first apply — see docs/BOOTSTRAP.md step 5).
   # The app lives at urle.<domain>, the VPNs at vpn-<env>.<domain>.
-  domain_name = "example.com"
+  domain_name = "url-e.online"
 
   ssm_parameter_prefix = "/urle/global"
 }

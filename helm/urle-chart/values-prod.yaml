@@ -6,7 +6,7 @@ urle-auth:
   replicaCount: 3
   image:
     # Set to the real ECR repository URL (output of terraform/environments/global/ecr-auth, or /urle/global/ecr/urle-auth/repository-url in SSM).
-    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-auth
+    repository: 095887736740.dkr.ecr.us-east-1.amazonaws.com/urle-auth
   pdb:
     enabled: true
   topologySpread:
@@ -25,7 +25,7 @@ urle-dashboard:
   replicaCount: 3
   image:
     # Set to the real ECR repository URL (output of terraform/environments/global/ecr-dashboard, or /urle/global/ecr/urle-dashboard/repository-url in SSM).
-    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-dashboard
+    repository: 095887736740.dkr.ecr.us-east-1.amazonaws.com/urle-dashboard
   pdb:
     enabled: true
   topologySpread:
@@ -44,7 +44,7 @@ urle-redirect:
   replicaCount: 3
   image:
     # Set to the real ECR repository URL (output of terraform/environments/global/ecr-redirect, or /urle/global/ecr/urle-redirect/repository-url in SSM).
-    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-redirect
+    repository: 095887736740.dkr.ecr.us-east-1.amazonaws.com/urle-redirect
   pdb:
     enabled: true
   topologySpread:
@@ -74,11 +74,11 @@ ingress:
   # One-time fill: urle.<the domain in terraform/environments/global/route53-public-zone>.
   # CloudFront forwards the viewer's Host header, so the ALB rule still
   # matches this public name — and request.host_url builds short links right.
-  host: urle.example.com
+  host: urle.url-e.online
   extraHosts:
     # One-time fill alongside host: the CloudFront origin hostname
     # (must match the cloudfront unit's origin_hostname + the ACM SAN).
-    - urle-origin.example.com
+    - urle-origin.url-e.online
   annotations:
     # Base nginx annotation doesn't apply to the ALB — null removes it.
     nginx.ingress.kubernetes.io/proxy-body-size: null
@@ -145,7 +145,7 @@ redis:
 externalSecrets:
   enabled: true
   # Real ARN from `terragrunt output` of terraform/environments/prod/external-secrets.
-  roleArn: arn:aws:iam::111111111111:role/urle-prod-external-secrets
+  roleArn: arn:aws:iam::095887736740:role/urle-prod-external-secrets
   region: us-east-1
 
 # Grafana dashboards on in prod (§10 item 16).

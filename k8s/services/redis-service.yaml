@@ -1,0 +1,16 @@
+# Redis backs the rate limiter so limits are shared across app replicas.
+# State is disposable (rate-limit counters), so no persistence is configured.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: urle
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379

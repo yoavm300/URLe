@@ -15,11 +15,11 @@ instance/
 # Environment
 .env
 
-# Kubernetes — never commit the filled-in Secret (the .example is fine)
-k8s/secret.yaml
+# Kubernetes — never commit the filled-in Secret (the secrets.example/ copy is fine)
+k8s/secrets/
 
 # Helm — packaged dependencies are rebuilt from file:// paths (Chart.lock is committed)
-charts/urle/charts/*.tgz
+helm/urle-chart/charts/*.tgz
 
 # Terraform / Terragrunt
 .terraform/

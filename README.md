@@ -71,10 +71,9 @@ Project_URLe/
 │           ├── redirect.py        # GET /<short_code>
 │           └── health.py          # /healthz
 │
-├── k8s/                            # raw Kubernetes manifests — minikube-local reference (see Infrastructure)
-├── charts/                         # Helm charts (see Infrastructure)
-├── infra/                          # Terraform/Terragrunt: modules + live/{global,dev,prod} (see Infrastructure)
-├── argocd/                         # Argo CD Application/Project definitions
+├── k8s/                            # raw Kubernetes manifests by kind — minikube-local reference (see Infrastructure)
+├── helm/                           # Helm charts + git-ops/ Argo CD definitions (see Infrastructure)
+├── terraform/                      # Terraform/Terragrunt: modules + environments/{global,dev,prod} (see Infrastructure)
 ├── docs/BOOTSTRAP.md               # one-time AWS/GitHub account setup
 ├── scripts/bootstrap-state.sh      # creates the Terraform state bucket (step 1 of BOOTSTRAP.md)
 └── .github/workflows/              # CI/CD per service + infra plan/apply/bootstrap/destroy
@@ -251,7 +250,7 @@ PYTHONPATH=.:services/dashboard flask --app services/dashboard/run init-db
 ### Deploying to AWS — the lifecycle at a glance
 
 After a **one-time account bootstrap** (`docs/BOOTSTRAP.md`: state bucket →
-`infra/live/global` applied locally → GitHub variables/secret/Environments →
+`terraform/environments/global` applied locally → GitHub variables/secret/Environments →
 manual SSM SecureStrings → domain NS delegation), the entire lifecycle runs
 from the GitHub Actions tab — this project is torn down between sessions for
 cost, and that cycle is a first-class operation:
@@ -264,7 +263,7 @@ cost, and that cycle is a first-class operation:
 | Tear an environment down | Dispatch **`infra-destroy`** (type the env name to confirm) |
 
 What survives a teardown: ECR images, the ACM certificate, the Route53 public
-zone, and everything in `infra/live/global/` — so the next bootstrap comes
+zone, and everything in `terraform/environments/global/` — so the next bootstrap comes
 back with the previously released images and the same domain/cert.
 
 **Access model:** prod's app is public at `urle.<domain>` — CloudFront at
@@ -328,15 +327,15 @@ count, independent of the other two.
 
 | Manifest | Resource | Purpose |
 |---|---|---|
-| `namespace.yaml` | Namespace | `urle` — everything else lives here, never `default` |
-| `secret.example.yaml` | Secret | `SECRET_KEY`, `DATABASE_URL`, Postgres creds — shared by all 3 services (template — do not commit real values) |
-| `configmap.yaml` | ConfigMap | `RATELIMIT_STORAGE_URI`, `TRUST_PROXY` — shared by all 3 |
-| `postgres.yaml` | StatefulSet + headless Service + PVC | In-cluster database (swap for managed Postgres in prod) |
-| `redis.yaml` | Deployment + Service | Shared rate-limit store |
-| `init-db-job.yaml` | Job | Runs `flask init-db` once, via the `urle-dashboard` image |
-| `deployment-auth.yaml`, `deployment-dashboard.yaml`, `deployment-redirect.yaml` | Deployment (3 replicas each) | `/healthz` probes, non-root, resource limits — one per service |
-| `service-auth.yaml`, `service-dashboard.yaml`, `service-redirect.yaml` | Service (ClusterIP) | Stable in-cluster address (80 → 5000) — one per service |
-| `ingress.yaml` | Ingress | Single external HTTP entry point, path-routed to the 3 Services above |
+| `namespaces/urle-namespace.yaml` | Namespace | `urle` — everything else lives here, never `default` |
+| `secrets.example/urle-secret.yaml` | Secret | `SECRET_KEY`, `DATABASE_URL`, Postgres creds — shared by all 3 services (template — do not commit real values) |
+| `configmaps/urle-configmap.yaml` | ConfigMap | `RATELIMIT_STORAGE_URI`, `TRUST_PROXY` — shared by all 3 |
+| `statefulsets/postgres.yaml`, `services/postgres-service.yaml` | StatefulSet + headless Service + PVC | In-cluster database (swap for managed Postgres in prod) |
+| `deployments/redis-deployment.yaml`, `services/redis-service.yaml` | Deployment + Service | Shared rate-limit store |
+| `jobs/init-db-job.yaml` | Job | Runs `flask init-db` once, via the `urle-dashboard` image |
+| `deployments/{auth,dashboard,redirect}-deployment.yaml` | Deployment (3 replicas each) | `/healthz` probes, non-root, resource limits — one per service |
+| `services/{auth,dashboard,redirect}-service.yaml` | Service (ClusterIP) | Stable in-cluster address (80 → 5000) — one per service |
+| `ingress/main-ingress.yaml` | Ingress | Single external HTTP entry point, path-routed to the 3 Services above |
 
 See **`k8s/README.md`** for the exact build → secrets → apply order and
 operational notes.
@@ -375,26 +374,26 @@ stats <minikube-container>` before debugging manifests; scaling replicas
 down to 1 per service (`kubectl scale deployment ... --replicas=1 -n urle`)
 is a quick, reversible way to confirm that's the cause.
 
-### Helm charts (`charts/`)
+### Helm charts (`helm/`)
 
-- **One chart per service** (`urle-auth`, `urle-dashboard`, `urle-redirect`,
-  `postgres`, `redis`), composed by an **umbrella chart** (`urle`) that's the
-  only thing Argo CD ever deploys directly.
+- **One chart per service** (`helm/auth`, `helm/dashboard`, `helm/redirect`,
+  `helm/postgres`, `helm/redis`), composed by an **umbrella chart**
+  (`helm/urle-chart`) that's the only thing Argo CD ever deploys directly.
 - Resources that reference more than one service — the shared ConfigMap and
   the single path-routed Ingress — live in the **umbrella chart's own
   `templates/`**, not in any one service's subchart.
 - The init-db Job is a Helm `post-install,pre-upgrade` hook owned by
-  `charts/urle-dashboard` (same reasoning as the raw manifests: it's the only
+  `helm/dashboard` (same reasoning as the raw manifests: it's the only
   chart whose image has both models). Under Argo CD it runs as a sync-wave-1
   hook, after the datastores (wave 0) and before the app Deployments (wave 2).
 - `Chart.lock` **is committed** (Argo CD needs it to run `helm dependency
-  build` reproducibly); only the vendored `charts/urle/charts/*.tgz` archives
-  are `.gitignore`d — `helm dependency update charts/urle` rebuilds those
+  build` reproducibly); only the vendored `helm/urle-chart/charts/*.tgz` archives
+  are `.gitignore`d — `helm dependency update helm/urle-chart` rebuilds those
   from the `file://` paths on demand.
 
 ```bash
-helm dependency update charts/urle
-helm template urle-dev charts/urle -f charts/urle/values-dev.yaml
+helm dependency update helm/urle-chart
+helm template urle-dev helm/urle-chart -f helm/urle-chart/values-dev.yaml
 ```
 
 ### CI/CD (`.github/workflows/`)
@@ -415,7 +414,7 @@ all 3, but a change to one service never triggers another's pipeline):
 All AWS access is OIDC-federated — no long-lived keys. The provider and the
 three roles (`urle-dev-cicd`/`urle-prod-cicd`, trust scoped per GitHub
 Environment; `urle-release`, trust scoped to `v*` tags, ECR-push-only
-permissions) are provisioned by `infra/live/global/github-oidc`. One-time
+permissions) are provisioned by `terraform/environments/global/github-oidc`. One-time
 account setup lives in **`docs/BOOTSTRAP.md`**.
 
 See **`MANIFEST.md`** for the full CI/CD contract, including the known
@@ -423,9 +422,9 @@ tradeoff of 3 independent release PRs touching the same umbrella
 `Chart.yaml` on the same tag (they can conflict if merged out of order —
 accepted as equivalent to any other automated-PR conflict).
 
-### Terraform / Terragrunt (`infra/`)
+### Terraform / Terragrunt (`terraform/`)
 
-- `infra/modules/` — plain, environment-agnostic Terraform: `vpc`, `eks`,
+- `terraform/modules/` — plain, environment-agnostic Terraform: `vpc`, `eks`,
   `ecr` (generic, parameterized by repo name), `rds-postgres` (prod only),
   `argocd` (bootstrap install + app-of-apps), `ingress-nginx` (internal NLB),
   `cert-manager`, `external-secrets`, `karpenter`, `kube-prometheus-stack`,
@@ -434,25 +433,25 @@ accepted as equivalent to any other automated-PR conflict).
   admin zone), `route53-public-zone`, `acm`, `alb-controller`,
   `external-dns`, and `cloudfront` (prod public edge: distribution + WAF web
   ACL + security-headers policy).
-- `infra/live/global/` — account-wide units outside any environment teardown:
+- `terraform/environments/global/` — account-wide units outside any environment teardown:
   `github-oidc`, the **3 ECR units** (`ecr-auth`, `ecr-dashboard`,
   `ecr-redirect` — account-wide because one SemVer release feeds every
   environment, and so teardowns never delete released images), and
   `route53-public-zone` (the single source of truth for the app domain).
-- `infra/live/{dev,prod}/` — one Terragrunt unit per module instance. Dev is
+- `terraform/environments/{dev,prod}/` — one Terragrunt unit per module instance. Dev is
   VPN-only (internal NLB); prod serves the public app via ALB + ACM +
   ExternalDNS while ArgoCD/Grafana stay VPN-gated.
 - Remote state is S3 with native lockfile locking (`use_lockfile`), configured
-  once at the root `infra/live/root.hcl` and inherited by every unit; the
+  once at the root `terraform/environments/root.hcl` and inherited by every unit; the
   legacy DynamoDB lock table rides along until one full cycle confirms the
   migration (see `docs/BOOTSTRAP.md`).
 
-### Argo CD (`argocd/`)
+### Argo CD (`helm/git-ops/`)
 
-One `Application` per environment (`argocd/apps/dev.yaml`,
-`argocd/apps/prod.yaml`), both pointing at `charts/urle` — this didn't need
+One `Application` per environment (`helm/git-ops/dev.yaml`,
+`helm/git-ops/prod.yaml`), both pointing at `helm/urle-chart` — this didn't need
 any changes for the microservices split, since the umbrella chart's path is
-stable regardless of what it composes internally. `argocd/projects/
+stable regardless of what it composes internally. `helm/git-ops/projects/
 urle-project.yaml` scopes both to `urle-*` namespaces with least-privilege
 cluster-resource access (only `Namespace` creation cluster-wide).
 
@@ -470,7 +469,7 @@ describe 3 images instead of 1.
 
 A final AWS-automation pass (2026-07, modeled on the maintainer's
 `chess-infrastructure` reference) made the whole lifecycle run from GitHub
-Actions: provisioned OIDC CI identity, the `infra/live/global/` tier that
+Actions: provisioned OIDC CI identity, the `terraform/environments/global/` tier that
 survives teardown cycles, plan-on-PR / dispatch-apply / no-plan-bootstrap
 workflows, the WireGuard + private-zone access layer, and the prod
 ALB + ACM + ExternalDNS public edge. Goals and rationale live in

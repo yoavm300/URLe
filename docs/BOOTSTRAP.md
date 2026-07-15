@@ -43,12 +43,12 @@ Safe to re-run.
 ## 2. Apply the global units (locally — CI can't bootstrap its own identity)
 
 **First** set your real domain in
-`infra/live/global/route53-public-zone/terragrunt.hcl` (it ships with an
+`terraform/environments/global/route53-public-zone/terragrunt.hcl` (it ships with an
 `example.com` placeholder — applying that as-is creates a useless zone).
 Then:
 
 ```bash
-cd infra/live/global
+cd terraform/environments/global
 terragrunt run --all apply
 ```
 
@@ -129,12 +129,12 @@ writes that secret.
 
 ## 5. Domain / public zone delegation
 
-`infra/live/global/route53-public-zone` creates the public hosted zone for
+`terraform/environments/global/route53-public-zone` creates the public hosted zone for
 your domain. After the first apply, copy the zone's NS records to your
 registrar (one-time delegation):
 
 ```bash
-cd infra/live/global/route53-public-zone && terragrunt output name_servers
+cd terraform/environments/global/route53-public-zone && terragrunt output name_servers
 ```
 
 ACM validation, the `urle.<domain>` app record (written by ExternalDNS), and
@@ -142,8 +142,8 @@ the optional `vpn-<env>.<domain>` records all live in this zone.
 
 ## 6. One-time chart values fill
 
-Replace the placeholders in `charts/urle/values-prod.yaml` **and**
-`charts/urle/values-dev.yaml` with real values. Both are name-deterministic,
+Replace the placeholders in `helm/urle-chart/values-prod.yaml` **and**
+`helm/urle-chart/values-dev.yaml` with real values. Both are name-deterministic,
 so they survive teardown/bootstrap cycles:
 
 - `111111111111` → your account ID (ECR image repositories, IRSA role ARN)

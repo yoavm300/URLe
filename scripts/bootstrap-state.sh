@@ -60,4 +60,4 @@ else
   echo "EC2 Spot service-linked role already exists — skipping."
 fi
 
-echo "Done. Next: docs/BOOTSTRAP.md step 2 (apply infra/live/global)."
+echo "Done. Next: docs/BOOTSTRAP.md step 2 (apply terraform/environments/global)."

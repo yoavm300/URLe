@@ -1,0 +1,154 @@
+# Per-service prod hardening. pdb/topologySpread/serviceAccount have no infra
+# dependency and are on here. autoscaling is left off until Metrics Server is
+# confirmed in-cluster (§10 item 3) — flip enabled: true once it is, or the
+# HPA reports <unknown> and never scales.
+urle-auth:
+  replicaCount: 3
+  image:
+    # Set to the real ECR repository URL (output of terraform/environments/global/ecr-auth, or /urle/global/ecr/urle-auth/repository-url in SSM).
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-auth
+  pdb:
+    enabled: true
+  topologySpread:
+    enabled: true
+    topologyKey: topology.kubernetes.io/zone
+  serviceAccount:
+    create: true
+  metrics:
+    serviceMonitor:
+      enabled: true
+      # Must match the kube-prometheus-stack (item 6) serviceMonitorSelector.
+      labels:
+        release: kube-prometheus-stack
+
+urle-dashboard:
+  replicaCount: 3
+  image:
+    # Set to the real ECR repository URL (output of terraform/environments/global/ecr-dashboard, or /urle/global/ecr/urle-dashboard/repository-url in SSM).
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-dashboard
+  pdb:
+    enabled: true
+  topologySpread:
+    enabled: true
+    topologyKey: topology.kubernetes.io/zone
+  serviceAccount:
+    create: true
+  metrics:
+    serviceMonitor:
+      enabled: true
+      # Must match the kube-prometheus-stack (item 6) serviceMonitorSelector.
+      labels:
+        release: kube-prometheus-stack
+
+urle-redirect:
+  replicaCount: 3
+  image:
+    # Set to the real ECR repository URL (output of terraform/environments/global/ecr-redirect, or /urle/global/ecr/urle-redirect/repository-url in SSM).
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-redirect
+  pdb:
+    enabled: true
+  topologySpread:
+    enabled: true
+    topologyKey: topology.kubernetes.io/zone
+  serviceAccount:
+    create: true
+  metrics:
+    serviceMonitor:
+      enabled: true
+      # Must match the kube-prometheus-stack (item 6) serviceMonitorSelector.
+      labels:
+        release: kube-prometheus-stack
+
+# Public edge: CloudFront (terraform/environments/prod/cloudfront) -> ALB. The ALB is
+# created by the AWS Load Balancer Controller from this Ingress; end users
+# hit CloudFront at urle.<domain> (Terraform-owned record), which forwards to
+# the stable origin hostname in extraHosts (ExternalDNS-owned record). TLS is
+# the ACM certificate at both hops — auto-discovered at the ALB by hostname,
+# no ARN to copy here — so cert-manager/Let's Encrypt stays out of prod.
+#
+# NOTE (rule order): unlike nginx, the ALB evaluates rules in the order they
+# appear in templates/ingress.yaml — the redirect catch-all being listed last
+# is load-bearing there, not just documentation.
+ingress:
+  className: alb
+  # One-time fill: urle.<the domain in terraform/environments/global/route53-public-zone>.
+  # CloudFront forwards the viewer's Host header, so the ALB rule still
+  # matches this public name — and request.host_url builds short links right.
+  host: urle.example.com
+  extraHosts:
+    # One-time fill alongside host: the CloudFront origin hostname
+    # (must match the cloudfront unit's origin_hostname + the ACM SAN).
+    - urle-origin.example.com
+  annotations:
+    # Base nginx annotation doesn't apply to the ALB — null removes it.
+    nginx.ingress.kubernetes.io/proxy-body-size: null
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: urle-prod
+    # HTTPS only: CloudFront redirects HTTP at the edge, and the
+    # CloudFront-only SG doesn't admit port 80 anyway.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # Origin cloaking: frontend SG (created by terraform/environments/prod/alb-controller,
+    # referenced by name) admits only CloudFront's origin-facing ranges. The
+    # second annotation keeps the controller managing ALB->pod rules, which it
+    # stops doing by default when handed an explicit frontend SG.
+    alb.ingress.kubernetes.io/security-groups: urle-prod-alb-cloudfront-only
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
+  tls:
+    enabled: false # ACM at the ALB, not a cert-manager Secret
+
+clusterIssuer:
+  enabled: false # prod TLS is ACM at the ALB (see ingress above)
+
+config:
+  # Number of trusted proxy hops (ProxyFix x_for). Prod is CloudFront -> ALB
+  # -> pod = 2; with the wrong count, rate limiting keys on the edge's IP in
+  # the X-Forwarded-For chain and throttles all clients collectively.
+  trustProxy: "2"
+
+# Default-deny + minimal allows on in prod (§10 item 9). Needs the vpc-cni
+# enableNetworkPolicy setting (§10 item 7) to actually enforce.
+networkPolicy:
+  enabled: true
+  # The ALB (target-type: ip) reaches pods straight from VPC addresses —
+  # allow only the prod VPC CIDR (terraform/environments/prod/env.hcl).
+  albSourceCidr: 10.20.0.0/16
+
+# Worst case: 3 services × HPA maxReplicas 6 × (100m/256Mi req, 500m/512Mi
+# lim) + redis (50m/64Mi req, 200m/128Mi lim) + the init-db hook Job's own
+# footprint (100m/128Mi req, 500m/256Mi lim, counted explicitly — not left to
+# incidental headroom) — sized so flipping autoscaling on later never trips
+# the quota. No in-cluster postgres in prod (RDS).
+resourceQuota:
+  enabled: true
+  requests:
+    cpu: 2000m
+    memory: 5Gi
+  limits:
+    cpu: 10000m
+    memory: 10Gi
+
+limitRange:
+  enabled: true
+
+postgres:
+  enabled: false # prod uses RDS — DATABASE_URL in the Secret points at it
+
+# Redis AUTH on in prod (§10 item 11). The shared Secret must then carry both
+# REDIS_PASSWORD and the auth'd RATELIMIT_STORAGE_URI (redis://:PASS@redis:6379/0);
+# the item-10 ExternalSecret supplies them from Secrets Manager.
+redis:
+  auth:
+    enabled: true
+
+# Sync urlshortener-secrets from Secrets Manager in prod (§10 item 10).
+externalSecrets:
+  enabled: true
+  # Real ARN from `terragrunt output` of terraform/environments/prod/external-secrets.
+  roleArn: arn:aws:iam::111111111111:role/urle-prod-external-secrets
+  region: us-east-1
+
+# Grafana dashboards on in prod (§10 item 16).
+grafana:
+  dashboards:
+    enabled: true

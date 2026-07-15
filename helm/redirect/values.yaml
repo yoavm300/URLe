@@ -1,0 +1,66 @@
+replicaCount: 3
+
+image:
+  repository: urle-redirect # set to the ECR repository URL per environment
+  # SemVer only — no "latest". Empty tag falls back to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Both referenced by name, never templated with real values.
+# existingSecret must contain SECRET_KEY and DATABASE_URL (create out of band /
+# External Secrets). existingConfigMap is owned by the umbrella chart
+# (helm/urle-chart/templates/configmap.yaml) — this service doesn't rate-limit,
+# but envFrom's the same shared ConfigMap for consistency; unused keys are
+# harmless.
+existingSecret: urlshortener-secrets
+existingConfigMap: urlshortener-config
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# --- Availability & scaling (all default off; enable per environment) ---
+
+# HorizontalPodAutoscaler (§10 item 12). Needs Metrics Server in-cluster or
+# targets read <unknown>. When enabled the Deployment drops static replicas.
+# Public hot path — give this the widest min/max in per-env values.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# PodDisruptionBudget (§10 item 13).
+pdb:
+  enabled: false
+  minAvailable: 1
+
+# Spread replicas across failure domains (§10 item 14). ScheduleAnyway so a
+# single-node dev cluster still schedules; hostname key for minikube, switch
+# to topology.kubernetes.io/zone on multi-AZ EKS.
+topologySpread:
+  enabled: false
+  topologyKey: kubernetes.io/hostname
+  maxSkew: 1
+
+# Dedicated ServiceAccount, no mounted token (§10 item 18).
+serviceAccount:
+  create: false
+
+# Prometheus scraping (§10 item 15). ServiceMonitor needs the Prometheus
+# Operator CRDs in-cluster (§10 item 6); off unless present. labels let the
+# operator's serviceMonitorSelector pick it up (e.g. release: prometheus).
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}

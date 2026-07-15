@@ -19,9 +19,10 @@ docker push your-registry/urle-dashboard:latest
 docker push your-registry/urle-redirect:latest
 ```
 
-Replace the `image:` in `deployment-auth.yaml`, `deployment-dashboard.yaml`,
-`deployment-redirect.yaml`, and `init-db-job.yaml` (dashboard's image) with
-your actual image references.
+Replace the `image:` in `deployments/auth-deployment.yaml`,
+`deployments/dashboard-deployment.yaml`, `deployments/redirect-deployment.yaml`,
+and `jobs/init-db-job.yaml` (dashboard's image) with your actual image
+references.
 
 For local minikube testing, skip the registry entirely:
 
@@ -49,8 +50,8 @@ kubectl create secret generic urlshortener-secrets -n urle \
   --from-literal=POSTGRES_DB=urlshortener
 ```
 
-or copy `secret.example.yaml` to `secret.yaml`, fill it in, and apply it
-(keep `secret.yaml` out of git). The `DATABASE_URL` password must match
+or copy `secrets.example/urle-secret.yaml` to `secrets/urle-secret.yaml`, fill
+it in, and apply it (`secrets/` is gitignored). The `DATABASE_URL` password must match
 `POSTGRES_PASSWORD`. All 3 services and Postgres read from this **same**
 Secret — `SECRET_KEY` in particular must be identical across `urle-auth` and
 `urle-dashboard`, since it signs the session cookie that has to validate
@@ -59,20 +60,20 @@ across both.
 ## Apply order
 
 ```bash
-kubectl apply -f namespace.yaml
-kubectl apply -f secret.yaml            # or create via kubectl (above)
-kubectl apply -f configmap.yaml
-kubectl apply -f postgres.yaml          # skip if using managed Postgres
-kubectl apply -f redis.yaml
+kubectl apply -f namespaces/
+kubectl apply -f secrets/urle-secret.yaml   # or create via kubectl (above)
+kubectl apply -f configmaps/
+kubectl apply -f statefulsets/postgres.yaml -f services/postgres-service.yaml   # skip if using managed Postgres
+kubectl apply -f deployments/redis-deployment.yaml -f services/redis-service.yaml
 
 # wait for the database to be ready, then create the schema once:
 kubectl rollout status statefulset/postgres -n urle
-kubectl apply -f init-db-job.yaml
+kubectl apply -f jobs/init-db-job.yaml
 kubectl wait --for=condition=complete job/urle-dashboard-init-db -n urle --timeout=120s
 
-kubectl apply -f deployment-auth.yaml -f deployment-dashboard.yaml -f deployment-redirect.yaml
-kubectl apply -f service-auth.yaml -f service-dashboard.yaml -f service-redirect.yaml
-kubectl apply -f ingress.yaml
+kubectl apply -f deployments/auth-deployment.yaml -f deployments/dashboard-deployment.yaml -f deployments/redirect-deployment.yaml
+kubectl apply -f services/auth-service.yaml -f services/dashboard-service.yaml -f services/redirect-service.yaml
+kubectl apply -f ingress/
 ```
 
 For minikube, also enable the ingress addon and add the host to
@@ -85,7 +86,8 @@ echo "$(minikube ip) urle.local" | sudo tee -a /etc/hosts
 
 ## Notes
 
-- **Managed Postgres:** delete `postgres.yaml`, point `DATABASE_URL` at your
+- **Managed Postgres:** delete `statefulsets/postgres.yaml` and
+  `services/postgres-service.yaml`, point `DATABASE_URL` at your
   managed instance. The app rewrites `postgres://` / `postgresql://` to the
   psycopg driver automatically.
 - **Schema init** runs as a one-shot Job against the `urle-dashboard` image

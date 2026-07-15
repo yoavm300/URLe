@@ -54,7 +54,7 @@ jobs:
           role-to-assume: ${{ inputs.env == 'dev' && vars.AWS_DEV_CI_ROLE_ARN || vars.AWS_PROD_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - name: Terragrunt plan per unit
-        working-directory: infra/live/${{ inputs.env }}
+        working-directory: terraform/environments/${{ inputs.env }}
         env:
           ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
         run: |
@@ -91,7 +91,7 @@ jobs:
           role-to-assume: ${{ inputs.env == 'dev' && vars.AWS_DEV_CI_ROLE_ARN || vars.AWS_PROD_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - name: Terragrunt apply
-        working-directory: infra/live/${{ inputs.env }}
+        working-directory: terraform/environments/${{ inputs.env }}
         env:
           ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
         run: terragrunt run --all --non-interactive -- apply -auto-approve

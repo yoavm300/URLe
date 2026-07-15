@@ -1,0 +1,72 @@
+replicaCount: 3
+
+image:
+  repository: urle-dashboard # set to the ECR repository URL per environment
+  # SemVer only — no "latest". Empty tag falls back to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Both referenced by name, never templated with real values.
+# existingSecret must contain SECRET_KEY and DATABASE_URL (create out of band /
+# External Secrets). existingConfigMap is owned by the umbrella chart
+# (helm/urle-chart/templates/configmap.yaml) — same ConfigMap all 3 app services
+# read from, so it's referenced here rather than templated per-chart.
+existingSecret: urlshortener-secrets
+existingConfigMap: urlshortener-config
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+initDb:
+  # Schema creation runs exactly once per release operation (not per replica).
+  # Uses this chart's own image: it's the only service importing both the
+  # User and Url models, so a single db.create_all() call here creates both
+  # tables in one shot.
+  backoffLimit: 5
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# --- Availability & scaling (all default off; enable per environment) ---
+
+# HorizontalPodAutoscaler (§10 item 12). Needs Metrics Server in-cluster or
+# targets read <unknown>. When enabled the Deployment drops static replicas.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# PodDisruptionBudget (§10 item 13).
+pdb:
+  enabled: false
+  minAvailable: 1
+
+# Spread replicas across failure domains (§10 item 14). ScheduleAnyway so a
+# single-node dev cluster still schedules; hostname key for minikube, switch
+# to topology.kubernetes.io/zone on multi-AZ EKS.
+topologySpread:
+  enabled: false
+  topologyKey: kubernetes.io/hostname
+  maxSkew: 1
+
+# Dedicated ServiceAccount, no mounted token (§10 item 18). Also applied to
+# the init-db Job.
+serviceAccount:
+  create: false
+
+# Prometheus scraping (§10 item 15). ServiceMonitor needs the Prometheus
+# Operator CRDs in-cluster (§10 item 6); off unless present. labels let the
+# operator's serviceMonitorSelector pick it up (e.g. release: prometheus).
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}

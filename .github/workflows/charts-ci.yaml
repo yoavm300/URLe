@@ -3,12 +3,12 @@ name: charts-ci
 on:
   pull_request:
     paths:
-      - "charts/**"
+      - "helm/**"
       - ".github/workflows/charts-ci.yaml"
   push:
     branches: [main]
     paths:
-      - "charts/**"
+      - "helm/**"
       - ".github/workflows/charts-ci.yaml"
 
 permissions:
@@ -23,16 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: helm lint charts/urle-auth charts/urle-dashboard charts/urle-redirect charts/postgres charts/redis
+      - run: helm lint helm/auth helm/dashboard helm/redirect helm/postgres helm/redis
       # "update" (not "build") since no Chart.lock is committed — it always
       # recomputes from Chart.yaml + the file:// subchart paths, so it
-      # self-heals even if the vendored charts/urle/charts/*.tgz drift.
-      - run: helm dependency update charts/urle
-      - run: helm lint charts/urle
+      # self-heals even if the vendored helm/urle-chart/charts/*.tgz drift.
+      - run: helm dependency update helm/urle-chart
+      - run: helm lint helm/urle-chart
       - name: Render umbrella chart for both environments
         run: |
-          helm template urle-dev charts/urle -f charts/urle/values-dev.yaml > /dev/null
-          helm template urle-prod charts/urle -f charts/urle/values-prod.yaml > /dev/null
+          helm template urle-dev helm/urle-chart -f helm/urle-chart/values-dev.yaml > /dev/null
+          helm template urle-prod helm/urle-chart -f helm/urle-chart/values-prod.yaml > /dev/null
 
   version-bump-check:
     if: github.event_name == 'pull_request'
@@ -45,12 +45,12 @@ jobs:
         run: |
           base=$(git merge-base "origin/$GITHUB_BASE_REF" HEAD)
           failed=0
-          for chart in urle-auth urle-dashboard urle-redirect postgres redis urle; do
-            if ! git diff --quiet "$base" -- "charts/$chart"; then
-              old=$(git show "$base:charts/$chart/Chart.yaml" 2>/dev/null | yq '.version' || echo "")
-              new=$(yq '.version' "charts/$chart/Chart.yaml")
+          for chart in auth dashboard redirect postgres redis urle-chart; do
+            if ! git diff --quiet "$base" -- "helm/$chart"; then
+              old=$(git show "$base:helm/$chart/Chart.yaml" 2>/dev/null | yq '.version' || echo "")
+              new=$(yq '.version' "helm/$chart/Chart.yaml")
               if [ "$old" = "$new" ]; then
-                echo "::error::charts/$chart changed but Chart.yaml version is still $new"
+                echo "::error::helm/$chart changed but Chart.yaml version is still $new"
                 failed=1
               fi
             fi

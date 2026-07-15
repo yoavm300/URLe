@@ -47,15 +47,15 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           bump_patch() { awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}'; }
 
-          yq -i ".appVersion = \"$VERSION\"" charts/urle-dashboard/Chart.yaml
-          APP_CHART=$(yq '.version' charts/urle-dashboard/Chart.yaml | bump_patch)
-          yq -i ".version = \"$APP_CHART\"" charts/urle-dashboard/Chart.yaml
+          yq -i ".appVersion = \"$VERSION\"" helm/dashboard/Chart.yaml
+          APP_CHART=$(yq '.version' helm/dashboard/Chart.yaml | bump_patch)
+          yq -i ".version = \"$APP_CHART\"" helm/dashboard/Chart.yaml
 
-          yq -i "(.dependencies[] | select(.name == \"urle-dashboard\") | .version) = \"$APP_CHART\"" charts/urle/Chart.yaml
-          UMBRELLA=$(yq '.version' charts/urle/Chart.yaml | bump_patch)
-          yq -i ".version = \"$UMBRELLA\" | .appVersion = \"$VERSION\"" charts/urle/Chart.yaml
+          yq -i "(.dependencies[] | select(.name == \"urle-dashboard\") | .version) = \"$APP_CHART\"" helm/urle-chart/Chart.yaml
+          UMBRELLA=$(yq '.version' helm/urle-chart/Chart.yaml | bump_patch)
+          yq -i ".version = \"$UMBRELLA\" | .appVersion = \"$VERSION\"" helm/urle-chart/Chart.yaml
 
-          helm dependency update charts/urle
+          helm dependency update helm/urle-chart
       - uses: peter-evans/create-pull-request@v7
         with:
           branch: release/chart-bump-dashboard-${{ github.ref_name }}
@@ -66,5 +66,5 @@ jobs:
             Argo CD deploys this once merged.
 
             Note: app-auth-release and app-redirect-release open their own
-            PRs against charts/urle/Chart.yaml for the same tag — merge order
+            PRs against helm/urle-chart/Chart.yaml for the same tag — merge order
             between them may need a rebase if they land close together.

@@ -1,0 +1,42 @@
+# Dev on EKS pulls the same released images as prod — one SemVer release, one
+# registry (terraform/environments/global/ecr-*). One-time fill: replace 111111111111 with
+# the real account id (or read /urle/global/ecr/<name>/repository-url in SSM).
+# For local minikube use the raw k8s/ manifests instead (bare local images).
+urle-auth:
+  replicaCount: 2
+  image:
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-auth
+
+urle-dashboard:
+  replicaCount: 2
+  image:
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-dashboard
+
+urle-redirect:
+  replicaCount: 2
+  image:
+    repository: 111111111111.dkr.ecr.us-east-1.amazonaws.com/urle-redirect
+
+ingress:
+  # Dev is VPN-only: resolves via the urle-dev.internal private zone record
+  # (terraform/environments/dev/route53-private) pointing at the internal nginx NLB.
+  host: app.urle-dev.internal
+
+postgres:
+  enabled: true
+
+# 3 services × 2 replicas × (100m/256Mi req, 500m/512Mi lim) + postgres
+# (100m/128Mi req, 500m/256Mi lim) + redis (50m/64Mi req, 200m/128Mi lim)
+# + the init-db hook Job (100m/128Mi req, 500m/256Mi lim, counted
+# explicitly), rounded up for one-off pods under the LimitRange defaults.
+resourceQuota:
+  enabled: true
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+  limits:
+    cpu: 4500m
+    memory: 4Gi
+
+limitRange:
+  enabled: true

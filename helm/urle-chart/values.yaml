@@ -1,0 +1,136 @@
+# Fixed service names so DATABASE_URL host "postgres", the
+# redis://redis:6379/0 rate-limit URI, and this chart's own Ingress rules
+# (helm/urle-chart/templates/ingress.yaml, which hardcodes urle-auth/
+# urle-dashboard/urle-redirect as backend service names) all resolve
+# regardless of release name (matches the raw k8s/ manifests this chart
+# replaces).
+urle-auth:
+  fullnameOverride: urle-auth
+
+urle-dashboard:
+  fullnameOverride: urle-dashboard
+
+urle-redirect:
+  fullnameOverride: urle-redirect
+
+postgres:
+  # In-cluster Postgres for dev/local. Disabled in prod, where DATABASE_URL
+  # in the Secret points at RDS instead.
+  enabled: true
+  fullnameOverride: postgres
+
+redis:
+  enabled: true
+  fullnameOverride: redis
+  # Redis AUTH (§10 item 11). Read by both the redis subchart (to run
+  # --requirepass) and the umbrella ConfigMap (to drop the plaintext
+  # RATELIMIT_STORAGE_URI when on). Turned on in values-prod.yaml.
+  auth:
+    enabled: false
+
+# Consumed by helm/urle-chart/templates/configmap.yaml (shared by urle-auth and
+# urle-dashboard; urle-redirect envFrom's it too but doesn't read either key).
+config:
+  ratelimitStorageUri: redis://redis:6379/0
+  # Trusted proxy hops for ProxyFix (0/unset = direct). 1 = one ingress/ALB
+  # hop; prod overrides to 2 for CloudFront -> ALB.
+  trustProxy: "1"
+
+# Consumed by helm/urle-chart/templates/ingress.yaml — the single Ingress
+# routing to all 3 app services.
+ingress:
+  enabled: true
+  className: nginx
+  host: urle.example.com
+  # Additional hostnames serving the same paths (prod: the CloudFront origin
+  # hostname). Empty everywhere else.
+  extraHosts: []
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+  # TLS termination (§10 item 8). Off in dev; on in values-prod.yaml. When on,
+  # a cert-manager.io/cluster-issuer annotation is added and cert-manager
+  # provisions the cert into secretName. Needs cert-manager (item 1) and an
+  # ingress controller (item 2) in-cluster.
+  tls:
+    enabled: false
+    secretName: urle-tls
+    clusterIssuer: letsencrypt-prod
+
+# cert-manager ClusterIssuer, rendered by templates/clusterissuer.yaml
+# (§10 items 1 + 8). Off in dev; prod terminates TLS at the ALB with an ACM
+# certificate instead (see values-prod.yaml), so this stays off there too.
+clusterIssuer:
+  enabled: false
+  name: letsencrypt-prod
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: "" # ACME registration/expiry contact — required when enabled
+
+# Namespace ResourceQuota + per-container LimitRange defaults, rendered by
+# templates/resourcequota.yaml / templates/limitrange.yaml. Off in the base;
+# each values-<env>.yaml enables them with deliberately-sized numbers.
+resourceQuota:
+  enabled: false
+  requests:
+    cpu: "0"
+    memory: "0"
+  limits:
+    cpu: "0"
+    memory: "0"
+
+limitRange:
+  enabled: false
+  # Mirror the subcharts' own per-service defaults, so an unspecified
+  # container behaves like a service container.
+  defaultRequest:
+    cpu: 100m
+    memory: 256Mi
+  default:
+    cpu: 500m
+    memory: 512Mi
+
+# Grafana dashboards (§10 item 16), shipped as sidecar-loaded ConfigMaps
+# (label grafana_dashboard: "1"). Needs kube-prometheus-stack's Grafana
+# (§10 item 6) and real /metrics data (§10 item 15). Off in dev.
+grafana:
+  dashboards:
+    enabled: false
+
+# Consumed by helm/urle-chart/templates/networkpolicy.yaml (§10 item 9).
+# Default-deny-ingress + minimal allows. Off by default (dev/minikube where
+# the CNI may not enforce policy anyway); enabled in values-prod.yaml.
+# Enforcement on EKS additionally requires the vpc-cni enableNetworkPolicy
+# setting (§10 item 7) — without it these render but do nothing.
+networkPolicy:
+  enabled: false
+  # Namespace the ingress controller runs in (matched by its well-known
+  # kubernetes.io/metadata.name label). Aligns with §10 item 2's install.
+  ingressNamespace: ingress-nginx
+  # VPC CIDR the ALB's direct-to-pod traffic (target-type: ip) arrives from.
+  # Empty = no ipBlock allow (dev/nginx path). Set in values-prod.yaml.
+  albSourceCidr: ""
+  # App pod port (subcharts' service.targetPort); the allow rule targets the
+  # pod port, not the Service port 80.
+  appPort: 5000
+  # Namespace running Prometheus (§10 item 6). When set, its scrape traffic to
+  # the app port is allowed through default-deny so ServiceMonitors work. Empty
+  # disables that allow.
+  monitoringNamespace: monitoring
+
+# Consumed by helm/urle-chart/templates/externalsecret.yaml (§10 item 10).
+# Prod-only path that syncs `urlshortener-secrets` from AWS Secrets Manager
+# via the External Secrets Operator (§10 item 5). Off in dev, on in
+# values-prod.yaml.
+externalSecrets:
+  enabled: false
+  # IRSA role ARN from terraform/environments/prod/external-secrets (item 5 output) —
+  # scoped to read only urle/prod/*. Required when enabled.
+  roleArn: ""
+  # In-namespace SA the SecretStore authenticates as (IRSA-annotated above).
+  serviceAccountName: urle-external-secrets
+  storeName: urle-secretsmanager
+  targetSecret: urlshortener-secrets
+  region: us-east-1
+  # One JSON secret in Secrets Manager holding SECRET_KEY, DATABASE_URL,
+  # REDIS_PASSWORD, RATELIMIT_STORAGE_URI as properties.
+  remoteKey: urle/prod/app
+  refreshInterval: 1h

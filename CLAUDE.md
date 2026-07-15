@@ -40,10 +40,10 @@ services/
   dashboard/             # / /shorten /urls /url/* + static — owns URL management
   redirect/              # GET /<short_code> — hottest path, scales independently
     (each: app/ package with create_app(), run.py, Dockerfile, requirements.txt)
-charts/                  # Helm: one chart per service + postgres/redis + urle umbrella
-infra/                   # Terraform modules + Terragrunt live tree (global/dev/prod)
-argocd/                  # Argo CD AppProject + one Application per environment
-k8s/                     # raw manifests — minikube-local reference only
+helm/                    # Helm: one chart per service + postgres/redis + urle-chart umbrella,
+                         #   plus git-ops/ (Argo CD AppProject + one Application per environment)
+terraform/               # Terraform modules + Terragrunt environments tree (global/dev/prod)
+k8s/                     # raw manifests by kind — minikube-local reference only
 docs/BOOTSTRAP.md        # one-time AWS/GitHub account setup
 
 Rules:

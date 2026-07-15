@@ -34,6 +34,11 @@ dependencies {
     "../alb-controller",
     "../external-dns",
     "../monitoring",
+    # CloudFront must own the public urle.<domain> record before ExternalDNS
+    # (triggered by the chart's Ingress) gets a chance to create it — with the
+    # record already present and unowned, upsert-only ExternalDNS skips it and
+    # manages only the origin hostname.
+    "../cloudfront",
   ]
 }
 

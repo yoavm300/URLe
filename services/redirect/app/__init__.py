@@ -13,9 +13,12 @@ def create_app(config_class=Config):
 
     # Behind a proxy/ingress, trust X-Forwarded-* so the real client IP is used
     # for logging (and the correct scheme for redirects).
-    # Enabled only when TRUST_PROXY=1 so it can't be spoofed in direct setups.
-    if os.environ.get("TRUST_PROXY") == "1":
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    # TRUST_PROXY is the NUMBER of proxy hops in front of the app (unset/0 =
+    # direct, headers ignored so they can't be spoofed): 1 = ALB/ingress only,
+    # 2 = CloudFront in front of the ALB.
+    trusted_hops = int(os.environ.get("TRUST_PROXY", "0") or "0")
+    if trusted_hops > 0:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_hops, x_proto=1, x_host=1)
 
     # Fail closed if no SECRET_KEY is configured. Tests get a throwaway key so
     # they don't each have to set one; production must provide a real secret.

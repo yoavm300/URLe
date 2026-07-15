@@ -24,6 +24,7 @@ locals {
   ci_service_actions = [
     "acm:*",
     "autoscaling:*",
+    "cloudfront:*",
     "cloudwatch:*",
     "ec2:*",
     "ecr:*",
@@ -39,6 +40,7 @@ locals {
     "secretsmanager:*",
     "sqs:*",
     "ssm:*",
+    "wafv2:*",
   ]
 
   environments = ["dev", "prod"]

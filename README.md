@@ -196,7 +196,7 @@ regardless of which service imports it.
 | `SECRET_KEY` | — | all 3 | **Required in production** (each service refuses to boot without it). `run.py` injects a dev value locally. Must be **identical** across `auth` and `dashboard` (and all their replicas) — it signs the session cookie that has to validate across both. |
 | `DATABASE_URL` | `sqlite:///app.db` | all 3 | `postgres://` / `postgresql://` are normalized to the psycopg driver automatically. Must be identical across all 3 — same DB, same tables. |
 | `RATELIMIT_STORAGE_URI` | `memory://` | `auth`, `dashboard` | Set to `redis://host:6379/0` so limits are shared across replicas. Harmless if set on `redirect` too (unused there). |
-| `TRUST_PROXY` | unset | all 3 | Set to `1` behind a proxy/ingress to trust `X-Forwarded-*` (real client IP). |
+| `TRUST_PROXY` | unset | all 3 | Number of proxy hops to trust for `X-Forwarded-*` (`0`/unset = direct): `1` behind one ingress/ALB, `2` behind CloudFront → ALB (prod). Wrong count = rate limiting keys on the wrong hop's IP. |
 | `FLASK_DEBUG` | `0` | all 3 | `1` enables the dev-server debugger (never in prod). |
 | `PORT` | `5000` | all 3 | Dev-server port — set explicitly per service when running more than one locally (see above). |
 
@@ -237,6 +237,12 @@ PYTHONPATH=.:services/dashboard flask --app services/dashboard/run init-db
 - **Reserved short codes**: a custom short code can't collide with a real route segment (`login`, `register`, `shorten`, `urls`, `url`, `healthz`, `static`) — enforced in `services/dashboard/app/utils/validators.py`, and doubles as documentation of exactly which path segments the Ingress reserves for `auth`/`dashboard`.
 - **SECRET_KEY**: no insecure default — every service fails closed if it isn't set.
 - **Container**: all 3 images run as a non-root numeric UID.
+- **Prod edge (see Infrastructure)**: AWS WAF ahead of everything — a
+  2000 req/5min/IP rate block plus AWS managed rule groups, with the
+  `GenericRFI_*` rules set to count-only because a URL shortener's core
+  input (a URL in the POST body) is exactly what they'd false-positive on;
+  HSTS and friends via CloudFront's managed security-headers policy; the
+  ALB unreachable except from CloudFront.
 
 ---
 
@@ -261,10 +267,16 @@ What survives a teardown: ECR images, the ACM certificate, the Route53 public
 zone, and everything in `infra/live/global/` — so the next bootstrap comes
 back with the previously released images and the same domain/cert.
 
-**Access model:** prod's app is public at `urle.<domain>` (ALB + ACM +
-ExternalDNS). Everything else — the dev app (`app.urle-dev.internal`) and
-ArgoCD/Grafana in both envs (`argocd.urle-<env>.internal`) — resolves only
-over the WireGuard VPN (`vpn-<env>.<domain>`, wg-easy admin UI on 443).
+**Access model:** prod's app is public at `urle.<domain>` — CloudFront at
+the edge (TLS, `/static/*` caching, security headers) with **AWS WAF** in
+front of it (rate-limit block + the AWS managed IP-reputation / Common /
+Known-Bad-Inputs rule groups), backed by an ALB that only admits
+CloudFront's origin-facing address ranges (managed prefix-list SG, so
+neither WAF nor the edge can be bypassed). DDoS at L3/L4 is covered by
+Shield Standard, automatic and free on CloudFront. Everything else — the
+dev app (`app.urle-dev.internal`) and ArgoCD/Grafana in both envs
+(`argocd.urle-<env>.internal`) — resolves only over the WireGuard VPN
+(`vpn-<env>.<domain>`, wg-easy admin UI on 443).
 
 ### Containers
 
@@ -419,8 +431,9 @@ accepted as equivalent to any other automated-PR conflict).
   `cert-manager`, `external-secrets`, `karpenter`, `kube-prometheus-stack`,
   plus the AWS edge/automation set: `github-oidc` (CI identity), `vpn`
   (wg-easy + Caddy on EC2, SSM-only), `route53-private` (`urle-<env>.internal`
-  admin zone), `route53-public-zone`, `acm`, `alb-controller`, and
-  `external-dns` (prod public edge).
+  admin zone), `route53-public-zone`, `acm`, `alb-controller`,
+  `external-dns`, and `cloudfront` (prod public edge: distribution + WAF web
+  ACL + security-headers policy).
 - `infra/live/global/` — account-wide units outside any environment teardown:
   `github-oidc`, the **3 ECR units** (`ecr-auth`, `ecr-dashboard`,
   `ecr-redirect` — account-wide because one SemVer release feeds every

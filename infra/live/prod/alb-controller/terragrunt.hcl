@@ -38,4 +38,9 @@ inputs = {
   aws_region        = local.env.aws_region
   vpc_id            = dependency.vpc.outputs.vpc_id
   oidc_provider_arn = dependency.eks.outputs.oidc_provider_arn
+
+  # Origin cloaking: the chart's Ingress references this SG by name
+  # (values-prod.yaml security-groups annotation) so only CloudFront's
+  # origin-facing ranges reach the ALB.
+  cloudfront_only_sg_name = "urle-${local.env.env}-alb-cloudfront-only"
 }

@@ -32,7 +32,12 @@ spec:
       secretName: {{ .Values.ingress.tls.secretName }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host }}
+    # extraHosts serve the same paths under additional names — in prod the
+    # CloudFront origin hostname (urle-origin.<domain>): ExternalDNS creates
+    # its record from this rule, and the ALB accepts it as a host match while
+    # CloudFront forwards the viewer's Host for the primary name.
+    {{- range $host := concat (list .Values.ingress.host) .Values.ingress.extraHosts }}
+    - host: {{ $host }}
       http:
         paths:
           # auth service: exact routes only, so it never swallows the
@@ -99,8 +104,8 @@ spec:
 
           # redirect service: catch-all for any short code. Must stay last —
           # ingress-nginx sorts merged paths by specificity (exact/longer
-          # prefixes win) regardless of YAML order, but keeping it last here
-          # documents intent.
+          # prefixes win) regardless of YAML order, but the ALB evaluates
+          # rules in listed order, so for prod this position is load-bearing.
           - path: /
             pathType: Prefix
             backend:
@@ -108,4 +113,5 @@ spec:
                 name: urle-redirect
                 port:
                   number: 80
+    {{- end }}
 {{- end }}

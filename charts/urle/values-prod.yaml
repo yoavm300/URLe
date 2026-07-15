@@ -59,11 +59,12 @@ urle-redirect:
       labels:
         release: kube-prometheus-stack
 
-# Public edge: ALB created by the AWS Load Balancer Controller from this
-# Ingress (infra/live/prod/alb-controller); ExternalDNS points urle.<domain>
-# at it once it exists. TLS terminates at the ALB with the ACM certificate
-# (infra/live/prod/acm) — auto-discovered by hostname, no ARN to copy here —
-# so cert-manager/Let's Encrypt stays out of prod entirely.
+# Public edge: CloudFront (infra/live/prod/cloudfront) -> ALB. The ALB is
+# created by the AWS Load Balancer Controller from this Ingress; end users
+# hit CloudFront at urle.<domain> (Terraform-owned record), which forwards to
+# the stable origin hostname in extraHosts (ExternalDNS-owned record). TLS is
+# the ACM certificate at both hops — auto-discovered at the ALB by hostname,
+# no ARN to copy here — so cert-manager/Let's Encrypt stays out of prod.
 #
 # NOTE (rule order): unlike nginx, the ALB evaluates rules in the order they
 # appear in templates/ingress.yaml — the redirect catch-all being listed last
@@ -71,20 +72,39 @@ urle-redirect:
 ingress:
   className: alb
   # One-time fill: urle.<the domain in infra/live/global/route53-public-zone>.
+  # CloudFront forwards the viewer's Host header, so the ALB rule still
+  # matches this public name — and request.host_url builds short links right.
   host: urle.example.com
+  extraHosts:
+    # One-time fill alongside host: the CloudFront origin hostname
+    # (must match the cloudfront unit's origin_hostname + the ACM SAN).
+    - urle-origin.example.com
   annotations:
     # Base nginx annotation doesn't apply to the ALB — null removes it.
     nginx.ingress.kubernetes.io/proxy-body-size: null
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/group.name: urle-prod
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # HTTPS only: CloudFront redirects HTTP at the edge, and the
+    # CloudFront-only SG doesn't admit port 80 anyway.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # Origin cloaking: frontend SG (created by infra/live/prod/alb-controller,
+    # referenced by name) admits only CloudFront's origin-facing ranges. The
+    # second annotation keeps the controller managing ALB->pod rules, which it
+    # stops doing by default when handed an explicit frontend SG.
+    alb.ingress.kubernetes.io/security-groups: urle-prod-alb-cloudfront-only
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
   tls:
     enabled: false # ACM at the ALB, not a cert-manager Secret
 
 clusterIssuer:
   enabled: false # prod TLS is ACM at the ALB (see ingress above)
+
+config:
+  # Number of trusted proxy hops (ProxyFix x_for). Prod is CloudFront -> ALB
+  # -> pod = 2; with the wrong count, rate limiting keys on the edge's IP in
+  # the X-Forwarded-For chain and throttles all clients collectively.
+  trustProxy: "2"
 
 # Default-deny + minimal allows on in prod (§10 item 9). Needs the vpc-cni
 # enableNetworkPolicy setting (§10 item 7) to actually enforce.

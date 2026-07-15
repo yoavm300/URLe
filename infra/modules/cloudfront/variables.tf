@@ -35,3 +35,15 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "waf_enabled" {
+  description = "Attach an AWS WAF web ACL (managed common/bad-inputs/IP-reputation rules + a rate limit) to the distribution. Fixed cost ~USD 8/month while the distribution exists — and this unit is destroy-excluded, so that accrues even between sessions."
+  type        = bool
+  default     = true
+}
+
+variable "waf_rate_limit" {
+  description = "Max requests per source IP per 5-minute window before WAF blocks (coarse pre-filter; Flask-Limiter still enforces the fine-grained per-route limits)"
+  type        = number
+  default     = 2000
+}

@@ -21,5 +21,5 @@ variable "aws_region" {
 variable "chart_version" {
   description = "cert-manager Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "v1.16.2"
+  default     = "v1.21.0"
 }

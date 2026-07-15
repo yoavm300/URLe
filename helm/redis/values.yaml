@@ -1,6 +1,6 @@
 image:
   repository: redis
-  tag: "7.4.2-alpine" # pinned — no floating major tags
+  tag: "7.4.9-alpine" # pinned — no floating major tags
   pullPolicy: IfNotPresent
 
 resources:

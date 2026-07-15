@@ -31,7 +31,7 @@ variable "oidc_provider_arn" {
 variable "chart_version" {
   description = "aws-load-balancer-controller Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "1.11.0"
+  default     = "3.4.2"
 }
 
 variable "cloudfront_only_sg_name" {

@@ -41,5 +41,5 @@ variable "txt_owner_id" {
 variable "chart_version" {
   description = "external-dns Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "1.15.0"
+  default     = "1.21.1"
 }

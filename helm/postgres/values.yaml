@@ -1,6 +1,6 @@
 image:
   repository: postgres
-  tag: "16.6" # pinned — no floating major tags
+  tag: "16.14" # pinned — no floating major tags
   pullPolicy: IfNotPresent
 
 # Must contain POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB.

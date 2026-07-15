@@ -44,7 +44,7 @@ variable "secrets_path_prefix" {
 variable "chart_version" {
   description = "external-secrets Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "0.10.7"
+  default     = "2.7.0"
 }
 
 variable "ssm_parameter_prefix" {

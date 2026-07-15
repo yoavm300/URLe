@@ -71,6 +71,9 @@ module "eks" {
 
   eks_managed_node_groups = {
     default = {
+      # Explicit: AL2 AMIs don't exist for k8s >= 1.33 — relying on the
+      # module's default ami_type breaks cluster creation on 1.36.
+      ami_type       = "AL2023_x86_64_STANDARD"
       instance_types = var.node_instance_types
       min_size       = var.node_min_size
       max_size       = var.node_max_size

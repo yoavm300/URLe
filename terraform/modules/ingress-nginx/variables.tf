@@ -21,7 +21,7 @@ variable "aws_region" {
 variable "chart_version" {
   description = "ingress-nginx Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "4.11.3"
+  default     = "4.15.1"
 }
 
 variable "internal" {

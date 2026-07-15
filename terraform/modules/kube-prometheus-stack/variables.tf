@@ -21,5 +21,5 @@ variable "aws_region" {
 variable "chart_version" {
   description = "kube-prometheus-stack Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "65.5.1"
+  default     = "87.16.1"
 }

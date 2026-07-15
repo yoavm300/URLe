@@ -26,13 +26,13 @@ variable "environment" {
 variable "chart_version" {
   description = "argo-cd Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "7.7.11"
+  default     = "10.1.3"
 }
 
 variable "apps_chart_version" {
   description = "argocd-apps Helm chart version (SemVer, pinned)"
   type        = string
-  default     = "2.0.2"
+  default     = "2.0.5"
 }
 
 variable "gitops_repo_url" {

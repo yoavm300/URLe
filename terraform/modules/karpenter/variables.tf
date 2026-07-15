@@ -26,7 +26,7 @@ variable "node_security_group_id" {
 variable "chart_version" {
   description = "Karpenter Helm (OCI) chart version (SemVer, pinned)"
   type        = string
-  default     = "1.0.6"
+  default     = "1.14.0"
 }
 
 variable "nodepool_cpu_limit" {

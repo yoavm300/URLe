@@ -277,6 +277,55 @@ dev app (`app.urle-dev.internal`) and ArgoCD/Grafana in both envs
 (`argocd.urle-<env>.internal`) — resolves only over the WireGuard VPN
 (`vpn-<env>.<domain>`, wg-easy admin UI on 443).
 
+### Network & port map — edge to container
+
+The full hop-by-hop path of a request, from the internet to a gunicorn
+worker. Prod's public path first:
+
+| # | Hop | Listens on | Admits traffic from | Notes |
+|---|---|---|---|---|
+| 1 | **CloudFront + WAF** | 443 (80 redirects to HTTPS) | the internet | WAF rate-limit + AWS managed rule groups; Shield Standard L3/L4 |
+| 2 | **ALB** (`urle-origin.<domain>`) | 443, `https-only` from CloudFront | CloudFront's managed prefix list only (SG) | origin cloaking — hitting the ALB directly bypasses nothing, it refuses non-CloudFront sources |
+| 3 | **ALB → pod IPs** (`target-type: ip`) | pod port 5000 | ALB in-VPC (`10.20.0.0/16`) | no NodePort hop; path rules pick the service: `auth` gets exact `/login`/`/register`/`/logout`, `dashboard` gets `/`,`/shorten`,`/urls` + prefixes `/url`,`/static`, `redirect` is the `/` catch-all |
+| 4 | **Container** (gunicorn) | 5000 | NetworkPolicy: default-deny + explicit allows (incl. `albSourceCidr`) | non-root UID 1000, `/healthz` probes |
+
+Dev has no public path at all — same cluster shape, different front door:
+
+| # | Hop | Listens on | Admits traffic from |
+|---|---|---|---|
+| 1 | **WireGuard VPN** (EC2, public subnet) | UDP 51820 (tunnel), TCP 443 (wg-easy admin UI behind Caddy) | the internet (auth: WireGuard keys / bcrypt-hashed UI password); **no port 22 — management is SSM-only** |
+| 2 | **Private DNS** `urle-dev.internal` | — | resolves only inside the VPC, i.e. only over the VPN |
+| 3 | **internal NLB → ingress-nginx** | 80/443, `scheme: internal` | VPC + VPN clients |
+| 4 | **ClusterIP Services** | 80 → `targetPort` 5000 | in-cluster |
+
+Shared plumbing, both environments:
+
+- **Datastores** — Postgres on 5432 (dev: in-cluster StatefulSet behind a
+  headless Service; prod: RDS, SG admits only the cluster, credentials
+  composed into the `urle/prod/app` Secrets Manager secret and delivered by
+  ExternalSecrets). Redis on 6379, in-cluster, rate-limit counters only.
+- **Admin surfaces** — Argo CD and Grafana live at
+  `argocd.urle-<env>.internal` / `grafana.urle-<env>.internal`: VPN-only in
+  **both** environments, prod included.
+- **Egress** — pods reach the internet through the NAT gateway; nothing
+  inbound ever arrives that way.
+- **DNS split** — one public zone (`url-e.online`, delegated to Route53)
+  for CloudFront/ACM/VPN endpoints; one private zone per env
+  (`urle-<env>.internal`) for everything VPN-gated.
+
+**A deliberate tradeoff, recorded:** the EKS API endpoint is **public**
+(`cluster_endpoint_public_access = true`). This is not an open door — every
+request requires AWS SigV4 credentials matching an explicit cluster access
+entry; anonymous traffic dies before reaching the Kubernetes API. It is
+still a larger exposure than a private endpoint, and it's kept deliberately:
+the CI/CD workflows run on GitHub-hosted runners, which must reach the API
+to install Argo CD and the addon stack during bootstrap. A private endpoint
+would require a self-hosted runner inside the VPC — real cost and upkeep
+this project doesn't justify. The compensating controls are the standard
+ones: IAM-gated access entries (only the admin principal and the CI roles),
+plus everything *workload-facing* (app ingress, Argo CD, Grafana) staying
+internal/VPN-only as described above.
+
 ### Containers
 
 Each service has its own `Dockerfile` under `services/<name>/`, all
@@ -442,9 +491,9 @@ accepted as equivalent to any other automated-PR conflict).
   VPN-only (internal NLB); prod serves the public app via ALB + ACM +
   ExternalDNS while ArgoCD/Grafana stay VPN-gated.
 - Remote state is S3 with native lockfile locking (`use_lockfile`), configured
-  once at the root `terraform/environments/root.hcl` and inherited by every unit; the
-  legacy DynamoDB lock table rides along until one full cycle confirms the
-  migration (see `docs/BOOTSTRAP.md`).
+  once at the root `terraform/environments/root.hcl` and inherited by every unit.
+  (The legacy DynamoDB lock table belonged to the previous AWS account and
+  was dropped with the account move — S3-native locking only.)
 
 ### Argo CD (`helm/git-ops/`)
 

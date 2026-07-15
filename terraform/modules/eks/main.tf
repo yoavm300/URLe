@@ -61,6 +61,12 @@ module "eks" {
         enableNetworkPolicy = "true"
       })
     }
+    # Karpenter's controller role trusts pods.eks.amazonaws.com (the eks
+    # karpenter submodule's v20.24+ default) — Pod Identity needs this agent
+    # on the cluster or AssumeRole fails and the controller crash-loops.
+    eks-pod-identity-agent = {
+      most_recent = true
+    }
   }
 
   eks_managed_node_groups = {

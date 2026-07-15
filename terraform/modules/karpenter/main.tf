@@ -17,6 +17,12 @@ module "karpenter" {
   enable_v1_permissions = true
   namespace             = "kube-system"
 
+  # The submodule's controller role trusts pods.eks.amazonaws.com (Pod
+  # Identity, its v20.24+ default) — so bind it with a Pod Identity
+  # association rather than an IRSA annotation. Requires the
+  # eks-pod-identity-agent addon (terraform/modules/eks).
+  create_pod_identity_association = true
+
   node_iam_role_use_name_prefix = false
   node_iam_role_name            = "${var.cluster_name}-karpenter-node"
 
@@ -37,10 +43,6 @@ resource "helm_release" "karpenter" {
   set {
     name  = "settings.interruptionQueue"
     value = module.karpenter.queue_name
-  }
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.karpenter.iam_role_arn
   }
 }
 

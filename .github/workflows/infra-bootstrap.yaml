@@ -65,5 +65,5 @@ jobs:
         run: terragrunt run --all --non-interactive -- apply -auto-approve
       - name: Mark environment as up (re-enables plan-on-PR)
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.VARS_TOKEN || github.token }}
         run: gh variable set "$(echo '${{ inputs.env }}' | tr a-z A-Z)_UP" --body "true" --repo "$GITHUB_REPOSITORY"

@@ -69,5 +69,5 @@ jobs:
       - name: Mark environment as down (skips plan-on-PR)
         if: always() # even a partial destroy means plans can no longer be trusted
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.VARS_TOKEN || github.token }}
         run: gh variable set "$(echo '${{ inputs.env }}' | tr a-z A-Z)_UP" --body "false" --repo "$GITHUB_REPOSITORY"

@@ -13,7 +13,7 @@ locals {
 dependency "vpc" {
   config_path = "../vpc"
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
   mock_outputs = {
     vpc_id = "vpc-mock"
   }
@@ -22,7 +22,7 @@ dependency "vpc" {
 dependency "ingress_nginx" {
   config_path = "../ingress-nginx"
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
   mock_outputs = {
     lb_hostname = "mock-nlb.elb.us-east-1.amazonaws.com"
   }

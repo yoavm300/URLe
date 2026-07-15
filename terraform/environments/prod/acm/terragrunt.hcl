@@ -21,7 +21,7 @@ exclude {
 dependency "public_zone" {
   config_path = "../../global/route53-public-zone"
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
   mock_outputs = {
     zone_id   = "Z0MOCK"
     zone_name = "example.com"

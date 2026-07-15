@@ -13,7 +13,7 @@ locals {
 dependency "vpc" {
   config_path = "../vpc"
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
   mock_outputs = {
     vpc_id            = "vpc-mock"
     public_subnet_ids = ["subnet-mock-a", "subnet-mock-b", "subnet-mock-c"]
@@ -24,7 +24,7 @@ dependency "vpc" {
 dependency "public_zone" {
   config_path = "../../global/route53-public-zone"
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
   mock_outputs = {
     zone_id   = "Z0MOCK"
     zone_name = "example.com"

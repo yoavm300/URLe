@@ -13,7 +13,7 @@ locals {
 dependency "vpc" {
   config_path = "../vpc"
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
   mock_outputs = {
     vpc_id = "vpc-mock"
   }
@@ -22,7 +22,7 @@ dependency "vpc" {
 dependency "eks" {
   config_path = "../eks"
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
   mock_outputs = {
     cluster_name                       = "mock-cluster"
     cluster_endpoint                   = "https://mock.eks.amazonaws.com"

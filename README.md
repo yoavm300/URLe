@@ -237,6 +237,12 @@ PYTHONPATH=.:services/dashboard flask --app services/dashboard/run init-db
 - **Reserved short codes**: a custom short code can't collide with a real route segment (`login`, `register`, `shorten`, `urls`, `url`, `healthz`, `static`) — enforced in `services/dashboard/app/utils/validators.py`, and doubles as documentation of exactly which path segments the Ingress reserves for `auth`/`dashboard`.
 - **SECRET_KEY**: no insecure default — every service fails closed if it isn't set.
 - **Container**: all 3 images run as a non-root numeric UID.
+- **Prod edge (see Infrastructure)**: AWS WAF ahead of everything — a
+  2000 req/5min/IP rate block plus AWS managed rule groups, with the
+  `GenericRFI_*` rules set to count-only because a URL shortener's core
+  input (a URL in the POST body) is exactly what they'd false-positive on;
+  HSTS and friends via CloudFront's managed security-headers policy; the
+  ALB unreachable except from CloudFront.
 
 ---
 
@@ -262,10 +268,13 @@ zone, and everything in `infra/live/global/` — so the next bootstrap comes
 back with the previously released images and the same domain/cert.
 
 **Access model:** prod's app is public at `urle.<domain>` — CloudFront at
-the edge (TLS, `/static/*` caching, WAF attachment point) in front of an ALB
-that only admits CloudFront's origin-facing address ranges (managed prefix
-list SG, so the edge can't be bypassed). Everything else — the dev app
-(`app.urle-dev.internal`) and ArgoCD/Grafana in both envs
+the edge (TLS, `/static/*` caching, security headers) with **AWS WAF** in
+front of it (rate-limit block + the AWS managed IP-reputation / Common /
+Known-Bad-Inputs rule groups), backed by an ALB that only admits
+CloudFront's origin-facing address ranges (managed prefix-list SG, so
+neither WAF nor the edge can be bypassed). DDoS at L3/L4 is covered by
+Shield Standard, automatic and free on CloudFront. Everything else — the
+dev app (`app.urle-dev.internal`) and ArgoCD/Grafana in both envs
 (`argocd.urle-<env>.internal`) — resolves only over the WireGuard VPN
 (`vpn-<env>.<domain>`, wg-easy admin UI on 443).
 
@@ -423,7 +432,8 @@ accepted as equivalent to any other automated-PR conflict).
   plus the AWS edge/automation set: `github-oidc` (CI identity), `vpn`
   (wg-easy + Caddy on EC2, SSM-only), `route53-private` (`urle-<env>.internal`
   admin zone), `route53-public-zone`, `acm`, `alb-controller`,
-  `external-dns`, and `cloudfront` (prod public edge).
+  `external-dns`, and `cloudfront` (prod public edge: distribution + WAF web
+  ACL + security-headers policy).
 - `infra/live/global/` — account-wide units outside any environment teardown:
   `github-oidc`, the **3 ECR units** (`ecr-auth`, `ecr-dashboard`,
   `ecr-redirect` — account-wide because one SemVer release feeds every

@@ -20,6 +20,7 @@ dependency "vpc" {
   config_path = "../vpc"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     vpc_id             = "vpc-mock"
     private_subnet_ids = ["subnet-mock-a", "subnet-mock-b", "subnet-mock-c"]
@@ -30,6 +31,7 @@ dependency "eks" {
   config_path = "../eks"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     node_security_group_id = "sg-mock"
   }

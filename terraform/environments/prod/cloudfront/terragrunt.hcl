@@ -23,6 +23,7 @@ dependency "public_zone" {
   config_path = "../../global/route53-public-zone"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     zone_id   = "Z0MOCK"
     zone_name = "example.com"
@@ -33,6 +34,7 @@ dependency "acm" {
   config_path = "../acm"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     certificate_arn = "arn:aws:acm:us-east-1:111111111111:certificate/mock"
   }

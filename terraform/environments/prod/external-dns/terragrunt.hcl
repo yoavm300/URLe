@@ -14,6 +14,7 @@ dependency "eks" {
   config_path = "../eks"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     cluster_name                       = "mock-cluster"
     cluster_endpoint                   = "https://mock.eks.amazonaws.com"
@@ -26,6 +27,7 @@ dependency "public_zone" {
   config_path = "../../global/route53-public-zone"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     zone_id   = "Z0MOCK"
     zone_name = "example.com"

@@ -14,6 +14,7 @@ dependency "vpc" {
   config_path = "../vpc"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     vpc_id             = "vpc-mock"
     private_subnet_ids = ["subnet-mock-a", "subnet-mock-b"]
@@ -24,6 +25,7 @@ dependency "github_oidc" {
   config_path = "../../global/github-oidc"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     dev_ci_role_arn  = "arn:aws:iam::111111111111:role/mock-dev-cicd"
     prod_ci_role_arn = "arn:aws:iam::111111111111:role/mock-prod-cicd"

@@ -13,11 +13,6 @@ output "db_name" {
   value       = aws_db_instance.this.db_name
 }
 
-output "master_user_secret_arn" {
-  description = "Secrets Manager secret holding the generated master password"
-  value       = aws_db_instance.this.master_user_secret[0].secret_arn
-}
-
 output "security_group_id" {
   description = "Security group attached to the instance"
   value       = aws_security_group.this.id

@@ -14,7 +14,7 @@ dependency "eks" {
   config_path = "../eks"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
-  mock_outputs_merge_strategy_with_state = "shallow"
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     cluster_name                       = "mock-cluster"
     cluster_endpoint                   = "https://mock.eks.amazonaws.com"
@@ -26,7 +26,7 @@ dependency "alb_controller" {
   config_path = "../alb-controller"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
-  mock_outputs_merge_strategy_with_state = "shallow"
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     cloudfront_only_sg_id = "sg-mock"
   }
@@ -36,7 +36,7 @@ dependency "cloudfront" {
   config_path = "../cloudfront"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
-  mock_outputs_merge_strategy_with_state = "shallow"
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     origin_verify_value = "mock-origin-verify"
   }
@@ -46,7 +46,7 @@ dependency "public_zone" {
   config_path = "../../global/route53-public-zone"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
-  mock_outputs_merge_strategy_with_state = "shallow"
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     zone_name = "example.com"
   }
@@ -67,9 +67,9 @@ inputs = {
   # Ingress; the hostnames must match the cloudfront unit's domain_name /
   # origin_hostname (and the ACM SANs).
   edge = {
-    enabled           = true
-    hosts             = [
-      "urle.${dependency.public_zone.outputs.zone_name}",
+    enabled = true
+    hosts = [
+      dependency.public_zone.outputs.zone_name,
       "urle-origin.${dependency.public_zone.outputs.zone_name}",
     ]
     group_name        = "urle-${local.env.env}"

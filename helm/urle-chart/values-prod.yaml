@@ -67,11 +67,11 @@ urle-redirect:
 # ALB->nginx->pod is plain HTTP in-VPC, so cert-manager stays out of prod.
 ingress:
   className: nginx
-  # One-time fill: urle.<the domain in terraform/environments/global/route53-public-zone>.
+  # One-time fill: the apex domain from terraform/environments/global/route53-public-zone.
   # CloudFront forwards the viewer's Host header end to end, so nginx matches
   # this public name — and request.host_url builds short links right. (The
   # CloudFront origin hostname only exists at the edge Ingress, never here.)
-  host: urle.url-e.online
+  host: url-e.online
   tls:
     enabled: false # ACM at CloudFront/ALB, not a cert-manager Secret
 

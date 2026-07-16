@@ -22,7 +22,7 @@ dependency "public_zone" {
   config_path = "../../global/route53-public-zone"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
-  mock_outputs_merge_strategy_with_state = "shallow"
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     zone_id   = "Z0MOCK"
     zone_name = "example.com"
@@ -30,7 +30,7 @@ dependency "public_zone" {
 }
 
 inputs = {
-  domain_name = "urle.${dependency.public_zone.outputs.zone_name}"
+  domain_name = dependency.public_zone.outputs.zone_name
   zone_id     = dependency.public_zone.outputs.zone_id
 
   # CloudFront reaches the ALB via this stable origin hostname (ExternalDNS

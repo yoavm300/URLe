@@ -105,10 +105,10 @@ Project_URLe/
 │   │   ├── vpn/                 # wg-easy + Caddy on EC2 (SSM-only, split-tunnel)
 │   │   ├── route53-private/     # urle-<env>.internal zone → internal nginx NLB
 │   │   ├── route53-public-zone/ # the app domain (single source of truth)
-│   │   ├── acm/                 # DNS-validated cert for urle.<domain>
+│   │   ├── acm/                 # DNS-validated cert for the apex <domain>
 │   │   ├── alb-controller/      # AWS Load Balancer Controller (IRSA + Helm) + CloudFront-only ALB SG
 │   │   ├── external-dns/        # writes the origin record → ALB once the Ingress exists
-│   │   └── cloudfront/          # edge: TLS, /static/* caching, owns the public urle.<domain> record
+│   │   └── cloudfront/          # edge: TLS, /static/* caching, owns the public apex <domain> record
 │   └── environments/            # Terragrunt live tree
 │       ├── root.hcl             # root: S3 remote state (native lockfile), provider generation
 │       ├── global/              # account-wide, never part of an env teardown

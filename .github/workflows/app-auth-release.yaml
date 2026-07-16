@@ -58,6 +58,9 @@ jobs:
           helm dependency update helm/urle-chart
       - uses: peter-evans/create-pull-request@v7
         with:
+          # Tag builds run on a detached HEAD — create-pull-request requires an
+          # explicit base branch then.
+          base: main
           branch: release/chart-bump-auth-${{ github.ref_name }}
           commit-message: "Bump urle-auth chart for ${{ github.ref_name }}"
           title: "Release ${{ github.ref_name }}: bump urle-auth chart appVersion"

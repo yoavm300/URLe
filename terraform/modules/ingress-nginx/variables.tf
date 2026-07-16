@@ -29,3 +29,30 @@ variable "internal" {
   type        = bool
   default     = false
 }
+
+variable "edge" {
+  description = <<-EOT
+    Public edge in front of this controller (prod): an alb-class Ingress that
+    makes the AWS LB Controller build an internet-facing ALB whose only target
+    is the nginx controller pods (target-type ip — the internal NLB for admin
+    traffic is unaffected). Requests must carry the X-Origin-Verify secret
+    CloudFront attaches (origin_verify_value, from the cloudfront unit) or
+    they fall through to the ALB's default 404. Disabled by default (dev).
+  EOT
+  type = object({
+    enabled           = bool
+    hosts             = optional(list(string), [])
+    group_name        = optional(string, "")
+    security_group_id = optional(string, "")
+  })
+  default = { enabled = false }
+}
+
+# Separate from var.edge: sensitive values can't drive count/for_each, and the
+# edge resources are count-gated on edge.enabled.
+variable "edge_origin_verify_value" {
+  description = "Secret X-Origin-Verify value the ALB requires on every request (cloudfront unit output). Required when edge.enabled."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

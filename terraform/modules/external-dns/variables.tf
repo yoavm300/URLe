@@ -43,3 +43,9 @@ variable "chart_version" {
   type        = string
   default     = "1.21.1"
 }
+
+variable "ingress_class_filter" {
+  description = "Only read Ingresses of this class (empty = all). Prod sets \"alb\" so the nginx-class app Ingress — whose status carries the internal NLB — never competes for the public hostnames."
+  type        = string
+  default     = ""
+}

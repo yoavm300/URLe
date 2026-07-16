@@ -1,7 +1,8 @@
 # AWS Load Balancer Controller (§ prod public edge). Terraform installs the
-# CONTROLLER only — the actual ALB is created by it later, from the Ingress
-# objects ArgoCD deploys (ingressClassName: alb in values-prod.yaml). No
-# sequencing problem: ExternalDNS writes the public record once that ALB
+# CONTROLLER only — the actual ALB is created by it later, from the alb-class
+# edge Ingress the prod/ingress-nginx unit deploys (its target is the nginx
+# controller, which routes to the app via the chart's nginx-class Ingress).
+# No sequencing problem: ExternalDNS writes the public record once that ALB
 # exists, autonomously.
 module "irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
@@ -50,13 +51,11 @@ resource "helm_release" "alb_controller" {
 # --- Origin cloaking (optional) ----------------------------------------------
 # A frontend SG for the ALB that only admits CloudFront's origin-facing
 # address ranges (AWS-managed prefix list, updated by AWS as edges change).
-# Without it, anyone who discovers the ALB's own DNS name bypasses CloudFront
-# — and with it, WAF/rate rules and edge protections can't be sidestepped.
-# The Ingress opts in by name via:
-#   alb.ingress.kubernetes.io/security-groups: <this SG's name>
-#   alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
-# (the second one keeps the controller managing the ALB->pod rules, which it
-# otherwise stops doing when handed an explicit frontend SG).
+# Consumed by the prod/ingress-nginx unit's edge Ingress (security-groups
+# annotation, via the cloudfront_only_sg_id output). The prefix list admits
+# EVERY CloudFront customer's origin traffic, so this SG alone isn't enough —
+# the edge Ingress also requires the secret X-Origin-Verify header the
+# cloudfront module attaches to origin requests.
 
 data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
   count = var.cloudfront_only_sg_name != "" ? 1 : 0

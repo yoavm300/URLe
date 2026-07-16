@@ -59,60 +59,40 @@ urle-redirect:
       labels:
         release: kube-prometheus-stack
 
-# Public edge: CloudFront (terraform/environments/prod/cloudfront) -> ALB. The ALB is
-# created by the AWS Load Balancer Controller from this Ingress; end users
-# hit CloudFront at urle.<domain> (Terraform-owned record), which forwards to
-# the stable origin hostname in extraHosts (ExternalDNS-owned record). TLS is
-# the ACM certificate at both hops — auto-discovered at the ALB by hostname,
-# no ARN to copy here — so cert-manager/Let's Encrypt stays out of prod.
-#
-# NOTE (rule order): unlike nginx, the ALB evaluates rules in the order they
-# appear in templates/ingress.yaml — the redirect catch-all being listed last
-# is load-bearing there, not just documentation.
+# Public edge: CloudFront (terraform/environments/prod/cloudfront) -> ALB ->
+# ingress-nginx -> this Ingress -> Services -> pods. The ALB and its routing
+# to the nginx controller live in terraform (prod/ingress-nginx's edge
+# Ingress, alb class) — this Ingress is nginx-class and only does the
+# in-cluster path routing, same as dev. TLS is ACM at CloudFront and the ALB;
+# ALB->nginx->pod is plain HTTP in-VPC, so cert-manager stays out of prod.
 ingress:
-  className: alb
+  className: nginx
   # One-time fill: urle.<the domain in terraform/environments/global/route53-public-zone>.
-  # CloudFront forwards the viewer's Host header, so the ALB rule still
-  # matches this public name — and request.host_url builds short links right.
+  # CloudFront forwards the viewer's Host header end to end, so nginx matches
+  # this public name — and request.host_url builds short links right. (The
+  # CloudFront origin hostname only exists at the edge Ingress, never here.)
   host: urle.url-e.online
-  extraHosts:
-    # One-time fill alongside host: the CloudFront origin hostname
-    # (must match the cloudfront unit's origin_hostname + the ACM SAN).
-    - urle-origin.url-e.online
-  annotations:
-    # Base nginx annotation doesn't apply to the ALB — null removes it.
-    nginx.ingress.kubernetes.io/proxy-body-size: null
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/group.name: urle-prod
-    # HTTPS only: CloudFront redirects HTTP at the edge, and the
-    # CloudFront-only SG doesn't admit port 80 anyway.
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
-    # Origin cloaking: frontend SG (created by terraform/environments/prod/alb-controller,
-    # referenced by name) admits only CloudFront's origin-facing ranges. The
-    # second annotation keeps the controller managing ALB->pod rules, which it
-    # stops doing by default when handed an explicit frontend SG.
-    alb.ingress.kubernetes.io/security-groups: urle-prod-alb-cloudfront-only
-    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
   tls:
-    enabled: false # ACM at the ALB, not a cert-manager Secret
+    enabled: false # ACM at CloudFront/ALB, not a cert-manager Secret
 
 clusterIssuer:
   enabled: false # prod TLS is ACM at the ALB (see ingress above)
 
 config:
   # Number of trusted proxy hops (ProxyFix x_for). Prod is CloudFront -> ALB
-  # -> pod = 2; with the wrong count, rate limiting keys on the edge's IP in
-  # the X-Forwarded-For chain and throttles all clients collectively.
-  trustProxy: "2"
+  # -> nginx -> pod = 3 (nginx appends the ALB's IP via
+  # compute-full-forwarded-for); with the wrong count, rate limiting keys on
+  # the wrong IP in the X-Forwarded-For chain and throttles all clients
+  # collectively.
+  trustProxy: "3"
 
 # Default-deny + minimal allows on in prod (§10 item 9). Needs the vpc-cni
-# enableNetworkPolicy setting (§10 item 7) to actually enforce.
+# enableNetworkPolicy setting (§10 item 7) to actually enforce. App traffic
+# arrives from the nginx controller pods, covered by the base
+# ingressNamespace allow — the ALB only ever targets nginx, never app pods,
+# so no albSourceCidr ipBlock.
 networkPolicy:
   enabled: true
-  # The ALB (target-type: ip) reaches pods straight from VPC addresses —
-  # allow only the prod VPC CIDR (terraform/environments/prod/env.hcl).
-  albSourceCidr: 10.20.0.0/16
 
 # Worst case: 3 services × HPA maxReplicas 6 × (100m/256Mi req, 500m/512Mi
 # lim) + redis (50m/64Mi req, 200m/128Mi lim) + the init-db hook Job's own

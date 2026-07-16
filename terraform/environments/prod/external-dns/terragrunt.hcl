@@ -45,4 +45,9 @@ inputs = {
   zone_arn      = dependency.public_zone.outputs.zone_arn
   domain_filter = dependency.public_zone.outputs.zone_name
   txt_owner_id  = "urle-${local.env.env}"
+
+  # Only the alb-class edge Ingress (prod/ingress-nginx) feeds DNS. The
+  # nginx-class app Ingress's status carries the internal admin NLB — without
+  # this filter ExternalDNS would try to point the public hosts at it.
+  ingress_class_filter = "alb"
 }

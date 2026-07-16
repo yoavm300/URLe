@@ -42,6 +42,7 @@ resource "helm_release" "external_dns" {
       policy        = "upsert-only"
       domainFilters = [var.domain_filter]
       txtOwnerId    = var.txt_owner_id
+      extraArgs     = var.ingress_class_filter != "" ? ["--ingress-class=${var.ingress_class_filter}"] : []
       serviceAccount = {
         create = true
         name   = "external-dns"

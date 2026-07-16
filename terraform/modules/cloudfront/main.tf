@@ -31,6 +31,18 @@ data "aws_cloudfront_response_headers_policy" "security_headers" {
   name = "Managed-SecurityHeadersPolicy"
 }
 
+# Origin cloaking, half 2 (half 1 is the CloudFront-only SG in alb-controller):
+# the SG's prefix list admits every CloudFront customer's origin-facing
+# traffic, so anyone can point their own distribution at our origin hostname
+# and sail past the WAF. This secret rides on every origin request; the ALB
+# (edge Ingress in the ingress-nginx unit) only forwards requests carrying it.
+# Rotation: taint this resource, re-apply cloudfront then prod/ingress-nginx —
+# the brief origin-404 window between the two applies is acceptable here.
+resource "random_password" "origin_verify" {
+  length  = 32
+  special = false
+}
+
 resource "aws_cloudfront_distribution" "this" {
   enabled         = true
   is_ipv6_enabled = true
@@ -45,6 +57,11 @@ resource "aws_cloudfront_distribution" "this" {
   origin {
     origin_id   = "alb"
     domain_name = var.origin_hostname
+
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = random_password.origin_verify.result
+    }
 
     custom_origin_config {
       origin_protocol_policy = "https-only"

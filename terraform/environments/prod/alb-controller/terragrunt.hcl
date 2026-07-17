@@ -14,7 +14,7 @@ dependency "vpc" {
   config_path = "../vpc"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
-  mock_outputs_merge_strategy_with_state = "shallow"
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     vpc_id = "vpc-mock"
   }
@@ -24,7 +24,7 @@ dependency "eks" {
   config_path = "../eks"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan", "destroy"]
-  mock_outputs_merge_strategy_with_state = "shallow"
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     cluster_name                       = "mock-cluster"
     cluster_endpoint                   = "https://mock.eks.amazonaws.com"

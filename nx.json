@@ -3,6 +3,10 @@
     "version": "23.1.0"
   },
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "namedInputs": {
+    "sharedGlobals": ["{workspaceRoot}/pyproject.toml"],
+    "default": ["{projectRoot}/**/*", "sharedGlobals"]
+  },
   "targetDefaults": {
     "build": {
       "cache": true

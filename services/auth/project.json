@@ -1,0 +1,39 @@
+{
+  "name": "auth",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "tags": ["scope:python", "type:service"],
+  "implicitDependencies": ["shared"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "ruff check shared/ services/auth/",
+          "ruff format --check shared/ services/auth/"
+        ],
+        "cwd": "{workspaceRoot}",
+        "parallel": false
+      }
+    },
+    "smoke-test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "python -c \"from app import create_app; c = create_app().test_client(); r = c.get('/healthz'); assert r.status_code == 200, r.status_code; print('PASS: /healthz ->', r.status_code)\"",
+        "cwd": "{workspaceRoot}",
+        "env": {
+          "SECRET_KEY": "ci-smoke-test-key",
+          "PYTHONPATH": ".:services/auth"
+        }
+      }
+    },
+    "docker-build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "docker build -f services/auth/Dockerfile -t urle-auth:ci .",
+        "cwd": "{workspaceRoot}"
+      }
+    }
+  }
+}

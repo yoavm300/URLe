@@ -1,0 +1,8 @@
+# Trees Nx never needs to walk — keeps project-graph computation fast,
+# which matters a lot on /mnt/c (WSL's Windows-filesystem bridge).
+terraform/
+helm/
+k8s/
+docs/
+.venv/
+.claude/

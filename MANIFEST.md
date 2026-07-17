@@ -162,19 +162,20 @@ Project_URLe/
   `image.repository`/`image.tag`, the shared Ingress host per environment.
 - Every `Chart.yaml` carries SemVer `version` and `appVersion` (§6).
 
-## 5. CI/CD — one matrixed workflow per concern
+## 5. CI/CD — one workflow per concern, selection by the Nx graph
 
-`app-ci.yaml` and `app-release.yaml` each run all 3 services via a
-`strategy.matrix`, rather than 3 near-identical per-service files. CI keeps
-per-service path selectivity: a `changes` job diffs against the merge-base
-(PR) or the previous push, so a change to one service's `services/<svc>/**`
-only runs that service's matrix leg — a `shared/**`/`pyproject.toml` change
-(or one to `app-ci.yaml` itself) flips all 3 legs on. The filter fails open
-(treats as changed) if the diff can't be resolved.
+`app-ci.yaml` runs `nx affected` over the Nx workspace (each service has a
+`project.json` with `lint`/`smoke-test`/`docker-build` targets; `shared` is
+an `implicitDependencies` entry of all 3): a `services/<svc>/**` change
+affects only that service, a `shared/**`/`pyproject.toml` change affects
+all 3. `nrwl/nx-set-shas` supplies the diff base (merge-base on PRs, last
+green run on main pushes), and lint/smoke-test results are cached in Nx
+Cloud — unchanged targets are restored, not re-run. `app-release.yaml`
+runs all 3 services via `strategy.matrix` (a release always ships all 3).
 
 | Workflow | Paths | Jobs |
 |---|---|---|
-| `app-ci.yaml` | `services/**`, `shared/**`, `pyproject.toml` | `changes` (per-service diff) → matrixed `ci` (auth/dashboard/redirect): **ruff check** + **ruff format --check** (on `shared/` + `services/<service>/`) → smoke-test (`create_app()` boots, `/healthz` returns 200) → docker build (`-f services/<service>/Dockerfile .`, repo root context) |
+| `app-ci.yaml` | `services/**`, `shared/**`, `pyproject.toml`, `nx.json`, `.nxignore` | single `ci` job: `nx affected -t lint smoke-test docker-build` — **ruff check** + **ruff format --check** (on `shared/` + `services/<service>/`), smoke-test (`create_app()` boots, `/healthz` returns 200), docker build (`-f services/<service>/Dockerfile .`, repo root context) per affected service |
 | `app-release.yaml` | tag push `v*.*.*` (ships all 3 images at a matching version) | matrixed `push-image` (auth/dashboard/redirect): build → push to that service's ECR repo tagged `MAJOR.MINOR.PATCH` (+ git SHA); then one `bump-chart` job loops all 3 services, bumping each `helm/<service>` `appVersion`/`version` and the umbrella chart's dependency version, then the umbrella `version`/`appVersion` once, via a single PR |
 | `charts-ci.yaml` | `helm/**` | `helm lint` + `helm template` all charts; verify chart `version` was bumped |
 | `infra-ci.yaml` | `terraform/**` | `terraform fmt -check`, `terraform validate` (always-on check) + per-unit `terragrunt plan` per env on PRs, gated by `DEV_UP`/`PROD_UP` repo variables (plan fails against a torn-down env by nature) |

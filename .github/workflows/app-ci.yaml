@@ -6,6 +6,8 @@ on:
       - "services/**"
       - "shared/**"
       - "pyproject.toml"
+      - "nx.json"
+      - ".nxignore"
       - ".github/workflows/app-ci.yaml"
   push:
     branches: [main]
@@ -13,90 +15,42 @@ on:
       - "services/**"
       - "shared/**"
       - "pyproject.toml"
+      - "nx.json"
+      - ".nxignore"
       - ".github/workflows/app-ci.yaml"
 
 permissions:
   contents: read
+  actions: read # nx-set-shas queries past workflow runs to find the base SHA
 
 concurrency:
   group: app-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Which of the 3 services actually need CI this run — a shared/ change
-  # (or pyproject.toml, or this file) affects all 3; a services/<svc>/
-  # change affects only that one. Fails open (treats as changed) if the
-  # diff can't be resolved, rather than silently skipping CI.
-  changes:
+  # Which services need CI, and what runs for them, is decided by the Nx
+  # project graph (project.json per service, shared as an implicit
+  # dependency): a services/<svc>/ change affects only that service, a
+  # shared/ or pyproject.toml change affects all 3. Lint and smoke-test
+  # results are cached in Nx Cloud, so unchanged targets are restored
+  # instead of re-run.
+  ci:
     runs-on: ubuntu-latest
-    outputs:
-      # JSON array of changed service names, e.g. ["auth","redirect"] — fed
-      # straight into the ci job's strategy.matrix (a dynamic matrix), since
-      # the matrix context isn't available in job-level `if:` for gating
-      # individual legs.
-      services: ${{ steps.detect.outputs.services }}
+    env:
+      NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - id: detect
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base=$(git merge-base "origin/${{ github.base_ref }}" HEAD) || base=""
-          else
-            base="${{ github.event.before }}"
-          fi
-          shared=1
-          if [ -n "$base" ] && git diff --quiet "$base" HEAD -- shared/ pyproject.toml .github/workflows/app-ci.yaml 2>/dev/null; then
-            shared=0
-          fi
-          changed_services=()
-          for svc in auth dashboard redirect; do
-            changed=$shared
-            if [ "$changed" = 0 ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- "services/$svc/" 2>/dev/null; then
-              changed=0
-            elif [ "$changed" = 0 ]; then
-              changed=1
-            fi
-            [ "$changed" = 1 ] && changed_services+=("\"$svc\"")
-          done
-          json=$(IFS=,; echo "[${changed_services[*]}]")
-          echo "services=$json" >> "$GITHUB_OUTPUT"
-
-  ci:
-    needs: changes
-    # An empty dynamic matrix errors the job — skip it outright when no
-    # service changed (e.g. a services/ doc-only touch).
-    if: needs.changes.outputs.services != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJSON(needs.changes.outputs.services) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
+      # Exports NX_BASE/NX_HEAD: merge-base on PRs, last successful run's
+      # SHA on pushes to main.
+      - uses: nrwl/nx-set-shas@v4
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install ruff==0.15.20
-      - run: ruff check shared/ services/${{ matrix.service }}/
-      - run: ruff format --check shared/ services/${{ matrix.service }}/
-      - run: pip install -r services/${{ matrix.service }}/requirements.txt
-      - name: App boots and /healthz returns 200
-        env:
-          SECRET_KEY: ci-smoke-test-key
-          PYTHONPATH: .:services/${{ matrix.service }}
-        run: |
-          python - <<'EOF'
-          from app import create_app
-
-          client = create_app().test_client()
-          resp = client.get("/healthz")
-          assert resp.status_code == 200, resp.status_code
-          print("PASS: /healthz ->", resp.status_code)
-          EOF
-      - name: docker build
-        # Build only — pushing happens in app-release on SemVer tags.
-        # Context is the repo root (not services/<svc>/) so the Dockerfile
-        # can COPY shared/.
-        run: docker build -f services/${{ matrix.service }}/Dockerfile -t urle-${{ matrix.service }}:ci .
+      - run: >
+          pip install ruff==0.15.20
+          -r services/auth/requirements.txt
+          -r services/dashboard/requirements.txt
+          -r services/redirect/requirements.txt
+      - run: ./nx affected -t lint smoke-test docker-build

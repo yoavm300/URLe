@@ -34,3 +34,11 @@ helm/urle-chart/charts/*.tgz
 
 # OS / editor
 .DS_Store
+
+.nx/installation
+.nx/cache
+.nx/workspace-data
+.nx/self-healing
+.nx/migrate-runs
+.nx/polygraph
+.claude/worktrees

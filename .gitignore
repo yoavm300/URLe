@@ -42,3 +42,6 @@ helm/urle-chart/charts/*.tgz
 .nx/migrate-runs
 .nx/polygraph
 .claude/worktrees
+# npx/nx-cloud client installs
+node_modules/
+package-lock.json

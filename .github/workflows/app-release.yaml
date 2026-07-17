@@ -1,0 +1,73 @@
+name: app-release
+
+# SemVer tags only (vX.Y.Z) — no latest/branch tags ever reach the registry.
+# One tag releases all 3 services at a matching version (see MANIFEST.md §5/§6).
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  push-image:
+    strategy:
+      matrix:
+        service: [auth, dashboard, redirect]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC to AWS — no long-lived keys
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push SemVer + SHA tags
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          docker build -f services/${{ matrix.service }}/Dockerfile -t "$REGISTRY/urle-${{ matrix.service }}:$VERSION" .
+          docker tag "$REGISTRY/urle-${{ matrix.service }}:$VERSION" "$REGISTRY/urle-${{ matrix.service }}:sha-${GITHUB_SHA::12}"
+          docker push "$REGISTRY/urle-${{ matrix.service }}:$VERSION"
+          docker push "$REGISTRY/urle-${{ matrix.service }}:sha-${GITHUB_SHA::12}"
+
+  bump-chart:
+    needs: push-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump appVersion and chart versions for all 3 services
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          bump_patch() { awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}'; }
+
+          for svc in auth dashboard redirect; do
+            yq -i ".appVersion = \"$VERSION\"" "helm/$svc/Chart.yaml"
+            app_chart=$(yq '.version' "helm/$svc/Chart.yaml" | bump_patch)
+            yq -i ".version = \"$app_chart\"" "helm/$svc/Chart.yaml"
+            yq -i "(.dependencies[] | select(.name == \"urle-$svc\") | .version) = \"$app_chart\"" helm/urle-chart/Chart.yaml
+          done
+
+          umbrella=$(yq '.version' helm/urle-chart/Chart.yaml | bump_patch)
+          yq -i ".version = \"$umbrella\" | .appVersion = \"$VERSION\"" helm/urle-chart/Chart.yaml
+
+          helm dependency update helm/urle-chart
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          # Tag builds run on a detached HEAD — create-pull-request requires an
+          # explicit base branch then.
+          base: main
+          branch: release/chart-bump-${{ github.ref_name }}
+          commit-message: "Bump all service charts for ${{ github.ref_name }}"
+          title: "Release ${{ github.ref_name }}: bump chart appVersions"
+          body: |
+            Automated chart bump for image release `${{ github.ref_name }}` (auth, dashboard, redirect).
+            Argo CD deploys this once merged.

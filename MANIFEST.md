@@ -117,13 +117,9 @@ Project_URLe/
 │       │   └── {vpc,eks,vpn,route53-private,argocd,...}/terragrunt.hcl
 │       └── prod/                # public app via ALB+ACM; admin surfaces VPN-only
 │           └── {vpc,eks,vpn,route53-private,acm,alb-controller,external-dns,cloudfront,rds-postgres,argocd,...}/terragrunt.hcl
-└── .github/workflows/           # one CI + one release workflow per service (§5)
-    ├── app-auth-ci.yaml
-    ├── app-auth-release.yaml
-    ├── app-dashboard-ci.yaml
-    ├── app-dashboard-release.yaml
-    ├── app-redirect-ci.yaml
-    ├── app-redirect-release.yaml
+└── .github/workflows/           # one matrixed CI + one matrixed release workflow (§5)
+    ├── app-ci.yaml
+    ├── app-release.yaml
     ├── charts-ci.yaml
     ├── infra-ci.yaml            # fmt/validate + per-unit plan on PRs
     ├── infra-apply.yaml         # dispatch-only apply (plan-gated)
@@ -166,29 +162,31 @@ Project_URLe/
   `image.repository`/`image.tag`, the shared Ingress host per environment.
 - Every `Chart.yaml` carries SemVer `version` and `appVersion` (§6).
 
-## 5. CI/CD — separate workflow per service
+## 5. CI/CD — one matrixed workflow per concern
 
-All workflows trigger on `paths:` filters so a change to one service never
-runs another service's pipeline. Every service's workflow also triggers on
-`shared/**`, since a change there can affect all 3 services' correctness.
+`app-ci.yaml` and `app-release.yaml` each run all 3 services via a
+`strategy.matrix`, rather than 3 near-identical per-service files. CI keeps
+per-service path selectivity: a `changes` job diffs against the merge-base
+(PR) or the previous push, so a change to one service's `services/<svc>/**`
+only runs that service's matrix leg — a `shared/**`/`pyproject.toml` change
+(or one to `app-ci.yaml` itself) flips all 3 legs on. The filter fails open
+(treats as changed) if the diff can't be resolved.
 
 | Workflow | Paths | Jobs |
 |---|---|---|
-| `app-<service>-ci.yaml` (×3) | `services/<service>/**`, `shared/**`, `pyproject.toml` | **ruff check** + **ruff format --check** (on `shared/` + `services/<service>/`) → smoke-test (`create_app()` boots, `/healthz` returns 200) → docker build (`-f services/<service>/Dockerfile .`, repo root context) |
-| `app-<service>-release.yaml` (×3) | tag push `v*.*.*` (all 3 fire together — a release tag ships all 3 images at a matching version) | build image → push to that service's ECR repo tagged `MAJOR.MINOR.PATCH` (+ git SHA) → bump `helm/<service>` `appVersion`/`version` and the umbrella chart's dependency version + umbrella `version`/`appVersion`, via PR |
+| `app-ci.yaml` | `services/**`, `shared/**`, `pyproject.toml` | `changes` (per-service diff) → matrixed `ci` (auth/dashboard/redirect): **ruff check** + **ruff format --check** (on `shared/` + `services/<service>/`) → smoke-test (`create_app()` boots, `/healthz` returns 200) → docker build (`-f services/<service>/Dockerfile .`, repo root context) |
+| `app-release.yaml` | tag push `v*.*.*` (ships all 3 images at a matching version) | matrixed `push-image` (auth/dashboard/redirect): build → push to that service's ECR repo tagged `MAJOR.MINOR.PATCH` (+ git SHA); then one `bump-chart` job loops all 3 services, bumping each `helm/<service>` `appVersion`/`version` and the umbrella chart's dependency version, then the umbrella `version`/`appVersion` once, via a single PR |
 | `charts-ci.yaml` | `helm/**` | `helm lint` + `helm template` all charts; verify chart `version` was bumped |
 | `infra-ci.yaml` | `terraform/**` | `terraform fmt -check`, `terraform validate` (always-on check) + per-unit `terragrunt plan` per env on PRs, gated by `DEV_UP`/`PROD_UP` repo variables (plan fails against a torn-down env by nature) |
 | `infra-apply.yaml` | `workflow_dispatch` (env choice) | fresh per-unit plan → `terragrunt run --all apply`; prod gated by the `prod` GitHub Environment's required reviewer |
 | `infra-bootstrap.yaml` | `workflow_dispatch` (env choice) | cold-start apply in dependency order, deliberately no plan step; flips `<ENV>_UP=true` on success |
 | `infra-destroy.yaml` | `workflow_dispatch` (env + typed confirmation) | `terragrunt run --all destroy`; ECR/ACM/public zone survive (global/ or destroy-excluded); flips `<ENV>_UP=false` |
 
-**Known tradeoff:** since all 3 release workflows fire on the same tag and
-each opens its own PR bumping `helm/urle-chart/Chart.yaml`'s dependency list and
-version, those 3 PRs can conflict with each other if merged out of order.
-This is accepted as equivalent to normal automated-PR conflicts (e.g.
-Dependabot) — a human merges them, rebasing if needed. Not solved by a
-single combined "bump all 3" workflow, since that would blur the "one
-workflow per service" separation this repo intentionally keeps.
+**Resolved tradeoff:** the previous 3-workflows-per-concern design had each
+release workflow open its own PR bumping `helm/urle-chart/Chart.yaml`'s
+dependency list and version — 3 competing PRs that could conflict if merged
+out of order. Consolidating into one `bump-chart` job removed the race
+entirely: a release tag now produces exactly one chart-bump PR.
 
 **CD is Argo CD, not CI:** workflows only build/push images and bump chart
 versions; Argo CD watches `helm/git-ops/*` → `helm/urle-chart` and syncs the
@@ -225,7 +223,7 @@ extend-exclude = [".venv"]
 select = ["E", "F", "W", "I", "B", "UP"]
 ```
 
-- `ruff check .` and `ruff format --check .` run in every `app-<service>-ci.yaml`
+- `ruff check .` and `ruff format --check .` run in every `app-ci.yaml` matrix leg
   (scoped to `shared/` + that service's `services/<service>/`) and block merge.
 
 ## 8. Environments
@@ -518,14 +516,14 @@ P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
 
 ### Phase 5 — process (not chart/infra work — flag for the user, don't just do it)
 
-19. `[P3]` **The documented PR-based release flow has never run.** §5 says
-    `app-<service>-release.yaml` opens a PR to bump chart versions on
-    every `vX.Y.Z` tag push, but `git tag -l` is empty and `git log` shows
-    every commit going straight to `main` — no branch has ever existed, so
-    this path is unverified. Needs: branch protection on `main` requiring
-    the CI workflows as required status checks, then an actual `v0.1.0`
-    tag push to confirm the 3 release workflows open working PRs and that
-    the "3 conflicting PRs" tradeoff noted in §5 behaves as described.
+19. `[RESOLVED]` **The documented PR-based release flow has now run.** A
+    `v1.0.0` tag confirmed the release workflow builds/pushes all 3 images
+    and opens a chart-bump PR — `peter-evans/create-pull-request@v7` needed
+    an explicit `base: main` for tag-triggered (detached-HEAD) runs, fixed.
+    Separately, the per-service release workflows were consolidated into
+    one matrixed `app-release.yaml` (§5), which also eliminated the "3
+    conflicting PRs" tradeoff by construction — one `bump-chart` job now
+    produces exactly one PR per release tag.
 20. `[P3]` **Git/GitHub collaboration practice is untested** — no merge
     conflict has ever been resolved in this repo, no PR has ever been
     reviewed (bootcamp modules `01-git/*/03.1-commit-fixes`,
@@ -743,7 +741,7 @@ parallelizable once item 12's Phase 0 dependencies (3, 4) are met.
   `services/{auth,dashboard,redirect}/app/__init__.py` — instantiate the
   exporter inside `create_app()` (the redirect service has no extensions
   today beyond `db` — add it there too since it's the stated hot path).
-  Watch `ruff` import-sort in `app-<service>-ci.yaml`. Then chart: new
+  Watch `ruff` import-sort in `app-ci.yaml`. Then chart: new
   `helm/{auth,dashboard,redirect}/templates/servicemonitor.yaml`
   gated by `metrics.serviceMonitor.enabled`; edit each `values.yaml`; bump
   each `Chart.yaml` + umbrella. Verify: `curl` a pod's `:5000/metrics`

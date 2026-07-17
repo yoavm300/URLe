@@ -1,0 +1,95 @@
+name: app-ci
+
+on:
+  pull_request:
+    paths:
+      - "services/**"
+      - "shared/**"
+      - "pyproject.toml"
+      - ".github/workflows/app-ci.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+      - "shared/**"
+      - "pyproject.toml"
+      - ".github/workflows/app-ci.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Which of the 3 services actually need CI this run — a shared/ change
+  # (or pyproject.toml, or this file) affects all 3; a services/<svc>/
+  # change affects only that one. Fails open (treats as changed) if the
+  # diff can't be resolved, rather than silently skipping CI.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      auth: ${{ steps.detect.outputs.auth }}
+      dashboard: ${{ steps.detect.outputs.dashboard }}
+      redirect: ${{ steps.detect.outputs.redirect }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: detect
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base=$(git merge-base "origin/${{ github.base_ref }}" HEAD) || base=""
+          else
+            base="${{ github.event.before }}"
+          fi
+          shared=1
+          if [ -n "$base" ] && git diff --quiet "$base" HEAD -- shared/ pyproject.toml .github/workflows/app-ci.yaml 2>/dev/null; then
+            shared=0
+          fi
+          for svc in auth dashboard redirect; do
+            changed=$shared
+            if [ "$changed" = 0 ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- "services/$svc/" 2>/dev/null; then
+              changed=0
+            elif [ "$changed" = 0 ]; then
+              changed=1
+            fi
+            echo "$svc=$([ "$changed" = 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          done
+
+  ci:
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth, dashboard, redirect]
+    if: needs.changes.outputs[matrix.service] == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.15.20
+      - run: ruff check shared/ services/${{ matrix.service }}/
+      - run: ruff format --check shared/ services/${{ matrix.service }}/
+      - run: pip install -r services/${{ matrix.service }}/requirements.txt
+      - name: App boots and /healthz returns 200
+        env:
+          SECRET_KEY: ci-smoke-test-key
+          PYTHONPATH: .:services/${{ matrix.service }}
+        run: |
+          python - <<'EOF'
+          from app import create_app
+
+          client = create_app().test_client()
+          resp = client.get("/healthz")
+          assert resp.status_code == 200, resp.status_code
+          print("PASS: /healthz ->", resp.status_code)
+          EOF
+      - name: docker build
+        # Build only — pushing happens in app-release on SemVer tags.
+        # Context is the repo root (not services/<svc>/) so the Dockerfile
+        # can COPY shared/.
+        run: docker build -f services/${{ matrix.service }}/Dockerfile -t urle-${{ matrix.service }}:ci .

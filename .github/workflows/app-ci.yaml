@@ -30,9 +30,11 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      auth: ${{ steps.detect.outputs.auth }}
-      dashboard: ${{ steps.detect.outputs.dashboard }}
-      redirect: ${{ steps.detect.outputs.redirect }}
+      # JSON array of changed service names, e.g. ["auth","redirect"] — the
+      # ci job below tests membership with contains(fromJSON(...), matrix.service),
+      # since job-level `if:` can't use a context value (matrix.service) as a
+      # dynamic bracket index into another context's outputs.
+      services: ${{ steps.detect.outputs.services }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -48,6 +50,7 @@ jobs:
           if [ -n "$base" ] && git diff --quiet "$base" HEAD -- shared/ pyproject.toml .github/workflows/app-ci.yaml 2>/dev/null; then
             shared=0
           fi
+          changed_services=()
           for svc in auth dashboard redirect; do
             changed=$shared
             if [ "$changed" = 0 ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- "services/$svc/" 2>/dev/null; then
@@ -55,8 +58,10 @@ jobs:
             elif [ "$changed" = 0 ]; then
               changed=1
             fi
-            echo "$svc=$([ "$changed" = 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            [ "$changed" = 1 ] && changed_services+=("\"$svc\"")
           done
+          json=$(IFS=,; echo "[${changed_services[*]}]")
+          echo "services=$json" >> "$GITHUB_OUTPUT"
 
   ci:
     needs: changes
@@ -64,7 +69,7 @@ jobs:
       fail-fast: false
       matrix:
         service: [auth, dashboard, redirect]
-    if: needs.changes.outputs[matrix.service] == 'true'
+    if: contains(fromJSON(needs.changes.outputs.services), matrix.service)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

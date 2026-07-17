@@ -8,6 +8,8 @@ on:
       - "pyproject.toml"
       - "nx.json"
       - ".nxignore"
+      - "nx"
+      - ".nx/nxw.js"
       - ".github/workflows/app-ci.yaml"
   push:
     branches: [main]
@@ -17,6 +19,8 @@ on:
       - "pyproject.toml"
       - "nx.json"
       - ".nxignore"
+      - "nx"
+      - ".nx/nxw.js"
       - ".github/workflows/app-ci.yaml"
 
 permissions:

@@ -73,7 +73,7 @@ Project_URLe/
 │
 ├── k8s/                            # raw Kubernetes manifests by kind — minikube-local reference (see Infrastructure)
 ├── helm/                           # Helm charts + git-ops/ Argo CD definitions (see Infrastructure)
-├── terraform/                      # Terraform/Terragrunt: modules + environments/{global,dev,prod} (see Infrastructure)
+├── terraform/                      # Terraform/Terragrunt: modules + terragrunt/{global,dev,prod} (see Infrastructure)
 ├── docs/BOOTSTRAP.md               # one-time AWS/GitHub account setup
 ├── scripts/bootstrap-state.sh      # creates the Terraform state bucket (step 1 of BOOTSTRAP.md)
 └── .github/workflows/              # CI/CD per service + infra plan/apply/bootstrap/destroy
@@ -250,7 +250,7 @@ PYTHONPATH=.:services/dashboard flask --app services/dashboard/run init-db
 ### Deploying to AWS — the lifecycle at a glance
 
 After a **one-time account bootstrap** (`docs/BOOTSTRAP.md`: state bucket →
-`terraform/environments/global` applied locally → GitHub variables/secret/Environments →
+`terraform/terragrunt/global` applied locally → GitHub variables/secret/Environments →
 manual SSM SecureStrings → domain NS delegation), the entire lifecycle runs
 from the GitHub Actions tab — this project is torn down between sessions for
 cost, and that cycle is a first-class operation:
@@ -263,7 +263,7 @@ cost, and that cycle is a first-class operation:
 | Tear an environment down | Dispatch **`infra-destroy`** (type the env name to confirm) |
 
 What survives a teardown: ECR images, the ACM certificate, the Route53 public
-zone, and everything in `terraform/environments/global/` — so the next bootstrap comes
+zone, and everything in `terraform/terragrunt/global/` — so the next bootstrap comes
 back with the previously released images and the same domain/cert.
 
 **Access model:** prod's app is public at `urle.<domain>` — CloudFront at
@@ -463,7 +463,7 @@ all 3, but a change to one service never triggers another's pipeline):
 All AWS access is OIDC-federated — no long-lived keys. The provider and the
 three roles (`urle-dev-cicd`/`urle-prod-cicd`, trust scoped per GitHub
 Environment; `urle-release`, trust scoped to `v*` tags, ECR-push-only
-permissions) are provisioned by `terraform/environments/global/github-oidc`. One-time
+permissions) are provisioned by `terraform/terragrunt/global/github-oidc`. One-time
 account setup lives in **`docs/BOOTSTRAP.md`**.
 
 See **`MANIFEST.md`** for the full CI/CD contract, including the known
@@ -482,16 +482,16 @@ accepted as equivalent to any other automated-PR conflict).
   admin zone), `route53-public-zone`, `acm`, `alb-controller`,
   `external-dns`, and `cloudfront` (prod public edge: distribution + WAF web
   ACL + security-headers policy).
-- `terraform/environments/global/` — account-wide units outside any environment teardown:
+- `terraform/terragrunt/global/` — account-wide units outside any environment teardown:
   `github-oidc`, the **3 ECR units** (`ecr-auth`, `ecr-dashboard`,
   `ecr-redirect` — account-wide because one SemVer release feeds every
   environment, and so teardowns never delete released images), and
   `route53-public-zone` (the single source of truth for the app domain).
-- `terraform/environments/{dev,prod}/` — one Terragrunt unit per module instance. Dev is
+- `terraform/terragrunt/{dev,prod}/` — one Terragrunt unit per module instance. Dev is
   VPN-only (internal NLB); prod serves the public app via ALB + ACM +
   ExternalDNS while ArgoCD/Grafana stay VPN-gated.
 - Remote state is S3 with native lockfile locking (`use_lockfile`), configured
-  once at the root `terraform/environments/root.hcl` and inherited by every unit.
+  once at the root `terraform/terragrunt/root.hcl` and inherited by every unit.
   (The legacy DynamoDB lock table belonged to the previous AWS account and
   was dropped with the account move — S3-native locking only.)
 
@@ -518,7 +518,7 @@ describe 3 images instead of 1.
 
 A final AWS-automation pass (2026-07, modeled on the maintainer's
 `chess-infrastructure` reference) made the whole lifecycle run from GitHub
-Actions: provisioned OIDC CI identity, the `terraform/environments/global/` tier that
+Actions: provisioned OIDC CI identity, the `terraform/terragrunt/global/` tier that
 survives teardown cycles, plan-on-PR / dispatch-apply / no-plan-bootstrap
 workflows, the WireGuard + private-zone access layer, and the prod
 ALB + ACM + ExternalDNS public edge. Goals and rationale live in

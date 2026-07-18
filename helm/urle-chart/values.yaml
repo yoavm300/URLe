@@ -122,7 +122,7 @@ networkPolicy:
 # values-prod.yaml.
 externalSecrets:
   enabled: false
-  # IRSA role ARN from terraform/environments/prod/external-secrets (item 5 output) —
+  # IRSA role ARN from terraform/terragrunt/prod/external-secrets (item 5 output) —
   # scoped to read only urle/prod/*. Required when enabled.
   roleArn: ""
   # In-namespace SA the SecretStore authenticates as (IRSA-annotated above).

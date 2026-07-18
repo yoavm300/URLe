@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 ENV="${1:-}"
-if [ -z "$ENV" ] || [ ! -d "terraform/environments/$ENV" ]; then
+if [ -z "$ENV" ] || [ ! -d "terraform/terragrunt/$ENV" ]; then
   echo "Usage: ./destroyinfra.sh <dev|prod>" >&2
   exit 1
 fi
@@ -29,5 +29,5 @@ if [ "$CONFIRM" != "$ENV" ]; then
   exit 1
 fi
 
-cd "terraform/environments/$ENV"
+cd "terraform/terragrunt/$ENV"
 exec terragrunt run --all destroy

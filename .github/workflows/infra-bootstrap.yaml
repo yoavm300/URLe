@@ -8,7 +8,7 @@ name: infra-bootstrap
 # plan-checked PRs (infra-ci.yaml) and infra-apply.yaml.
 #
 # Prerequisites (one-time, see docs/BOOTSTRAP.md): state bucket,
-# terraform/environments/global applied locally, repo vars/secrets set, manual SSM
+# terraform/terragrunt/global applied locally, repo vars/secrets set, manual SSM
 # parameters created.
 on:
   workflow_dispatch:
@@ -59,7 +59,7 @@ jobs:
           role-to-assume: ${{ inputs.env == 'dev' && vars.AWS_DEV_CI_ROLE_ARN || vars.AWS_PROD_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - name: Terragrunt apply (full environment, dependency order)
-        working-directory: terraform/environments/${{ inputs.env }}
+        working-directory: terraform/terragrunt/${{ inputs.env }}
         env:
           ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
         run: terragrunt run --all --non-interactive -- apply -auto-approve

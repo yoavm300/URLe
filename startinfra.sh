@@ -5,8 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 ENV="${1:-dev}"
-if [ ! -d "terraform/environments/$ENV" ]; then
-  echo "Unknown environment '$ENV' — expected one of: $(ls terraform/environments/ | grep -v root.hcl | tr '\n' ' ')" >&2
+if [ ! -d "terraform/terragrunt/$ENV" ]; then
+  echo "Unknown environment '$ENV' — expected one of: $(ls terraform/terragrunt/ | grep -v root.hcl | tr '\n' ' ')" >&2
   exit 1
 fi
 
@@ -19,5 +19,5 @@ aws sts get-caller-identity --output text --query Arn || { echo "No AWS credenti
 
 # Note: the state bucket (urle-tfstate-<account-id>) must exist —
 # run ./scripts/bootstrap-state.sh once per account (see docs/BOOTSTRAP.md).
-cd "terraform/environments/$ENV"
+cd "terraform/terragrunt/$ENV"
 exec terragrunt run --all apply

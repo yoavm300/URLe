@@ -60,7 +60,7 @@ Runtime contract (from `README.md` / `k8s/README.md`):
 |---|---|
 | Cloud | **AWS** |
 | Cluster | **EKS** (managed node groups) |
-| Registry | **ECR** — one account-wide repo per service (`urle-auth`, `urle-dashboard`, `urle-redirect`): one SemVer release feeds every environment, and repos live in `terraform/environments/global/` so teardowns never delete released images |
+| Registry | **ECR** — one account-wide repo per service (`urle-auth`, `urle-dashboard`, `urle-redirect`): one SemVer release feeds every environment, and repos live in `terraform/terragrunt/global/` so teardowns never delete released images |
 | IaC | **Terraform** modules, orchestrated by **Terragrunt** (one live tree per environment) |
 | GitOps / CD | **Argo CD** — syncs Helm releases from this repo; no `kubectl apply` in CI |
 | Packaging | **Helm charts**, one per service, composed by an **umbrella chart** |
@@ -109,7 +109,7 @@ Project_URLe/
 │   │   ├── alb-controller/      # AWS Load Balancer Controller (IRSA + Helm) + CloudFront-only ALB SG
 │   │   ├── external-dns/        # writes the origin record → ALB once the Ingress exists
 │   │   └── cloudfront/          # edge: TLS, /static/* caching, owns the public apex <domain> record
-│   └── environments/            # Terragrunt live tree
+│   └── terragrunt/              # Terragrunt live tree
 │       ├── root.hcl             # root: S3 remote state (native lockfile), provider generation
 │       ├── global/              # account-wide, never part of an env teardown
 │       │   └── {github-oidc,ecr-auth,ecr-dashboard,ecr-redirect,route53-public-zone}/terragrunt.hcl
@@ -244,14 +244,14 @@ that **the entire AWS lifecycle runs from GitHub Actions** — a torn-down
 environment comes back with one workflow dispatch, and nothing but the
 one-time bootstrap (`docs/BOOTSTRAP.md`) ever requires a laptop.
 
-1. **CI identity is provisioned, not assumed.** `terraform/environments/global/github-oidc`
+1. **CI identity is provisioned, not assumed.** `terraform/terragrunt/global/github-oidc`
    creates the OIDC provider + `urle-dev-cicd`/`urle-prod-cicd` (trust scoped
    per GitHub Environment — single-branch repo, so no per-branch trust) and
    `urle-release` (trust scoped to `v*` tags, ECR-push-only). No long-lived
    AWS keys anywhere.
 2. **Teardown cycles are first-class.** This project is destroyed between
    sessions for cost. Everything that must survive lives in
-   `terraform/environments/global/` (OIDC roles, ECR repos + released images, public
+   `terraform/terragrunt/global/` (OIDC roles, ECR repos + released images, public
    zone) or carries an `exclude`-from-destroy block (prod ACM). Prod RDS is
    deliberately NOT excluded — it lives inside the prod VPC, so sparing it
    would leave a half-destroyed, still-billing environment; the final
@@ -263,7 +263,7 @@ one-time bootstrap (`docs/BOOTSTRAP.md`) ever requires a laptop.
    (`infra-apply`), cold starts via `infra-bootstrap` (no plan by design),
    teardown via `infra-destroy` (typed confirmation).
 4. **Single source of truth for cross-cutting values.** The app domain lives
-   only in `terraform/environments/global/route53-public-zone`; modules publish their
+   only in `terraform/terragrunt/global/route53-public-zone`; modules publish their
    outputs (ECR URLs, IRSA role ARN, RDS endpoint, cert ARN, zone id) as
    `/urle/...` SSM parameters. The only hand-filled values are the
    name-deterministic account id + domain in the chart values (one-time,
@@ -296,7 +296,7 @@ order:
 3. `.github/workflows/` — replace the single app-ci/app-release pair with 3
    pairs, path-filtered per service (plus `shared/**`) → verify: each
    triggers only on its own paths; ruff gate fails on an injected violation.
-4. `terraform/modules/`/`terraform/environments/` — add 2 more ECR Terragrunt units per env
+4. `terraform/modules/`/`terraform/terragrunt/` — add 2 more ECR Terragrunt units per env
    (3 total, one per service) → verify: `terragrunt plan` succeeds per env.
 5. `helm/git-ops/` — no changes needed; the per-env Applications already point at
    `helm/urle-chart` regardless of what it composes internally.
@@ -314,7 +314,7 @@ Gap audit of the current `helm/` + `terraform/` state against production
 readiness. Already-verified as **not** gaps, do not redo: ECR repos are
 `image_tag_mutability = IMMUTABLE` with `scan_on_push` (`terraform/modules/ecr`),
 prod RDS has `multi_az = true` and 7-day backups
-(`terraform/environments/prod/rds-postgres`), and all 3 app Deployments already run
+(`terraform/terragrunt/prod/rds-postgres`), and all 3 app Deployments already run
 non-root with `/healthz` liveness+readiness. Ask before starting per
 `.claude/bootcamp-CLAUDE.md` (security/networking/infra changes need
 sign-off) — this section is the brief to get that sign-off against, not a
@@ -329,7 +329,7 @@ P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
 
 1. `[P0]` **cert-manager install.** Not installed anywhere in `terraform/`.
    Add `terraform/modules/cert-manager` (mirror `terraform/modules/argocd`'s
-   Helm-install pattern), wired into `terraform/environments/{dev,prod}`. Unblocks
+   Helm-install pattern), wired into `terraform/terragrunt/{dev,prod}`. Unblocks
    item 8. Verify: `kubectl get pods -n cert-manager` all `Running`.
 2. `[P0]` **ingress-nginx controller install.**
    `helm/urle-chart/templates/ingress.yaml` sets `ingressClassName: nginx`, but
@@ -337,7 +337,7 @@ P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
    only in a code comment, so the existing Ingress is undeployed today
    regardless of any other item here. Add `terraform/modules/ingress-nginx`
    (same Helm-install pattern, `https://kubernetes.github.io/ingress-nginx`,
-   `namespace = "ingress-nginx"`), wired into `terraform/environments/{dev,prod}`.
+   `namespace = "ingress-nginx"`), wired into `terraform/terragrunt/{dev,prod}`.
    Unblocks the existing Ingress plus items 8 (TLS) and 9 (the NetworkPolicy
    ingress allow-rule targets this namespace). Verify:
    `kubectl get pods -n ingress-nginx` all `Running`; the controller Service
@@ -380,7 +380,7 @@ P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
 6. `[P2]` **kube-prometheus-stack install.** Zero references to
    `prometheus`/`grafana` anywhere in this repo outside this manifest. Add
    a self-contained `terraform/modules/kube-prometheus-stack` (same Helm-install
-   pattern) + `terraform/environments/{dev,prod}/monitoring/terragrunt.hcl` — gives
+   pattern) + `terraform/terragrunt/{dev,prod}/monitoring/terragrunt.hcl` — gives
    Prometheus, Alertmanager, node-exporter, kube-state-metrics, and Grafana
    in one shot. A GitOps `helm/git-ops/monitoring.yaml` route is **not**
    reachable as-is: the app-of-apps bootstrap in `terraform/modules/argocd/main.tf`
@@ -550,9 +550,9 @@ audit (A–G) are folded into the numbered items below.
   `main.tf` (a pinned `helm_release`), `variables.tf`, `versions.tf`
   (`hashicorp/helm ~> 2.16`), `providers.tf` (the `helm` provider
   authenticated via `aws eks get-token` exec), `outputs.tf` — plus one
-  Terragrunt unit per env under `terraform/environments/{dev,prod}/<name>/terragrunt.hcl`
+  Terragrunt unit per env under `terraform/terragrunt/{dev,prod}/<name>/terragrunt.hcl`
   with a `dependency "eks"` block (and `mock_outputs` for `validate`/`plan`).
-  The AWS provider is auto-generated by the root `terraform/environments/root.hcl`
+  The AWS provider is auto-generated by the root `terraform/terragrunt/root.hcl`
   `generate "provider"` block, so IAM-creating modules don't declare it
   themselves.
 - Cross-cutting K8s objects (span more than one subchart) live in
@@ -577,8 +577,8 @@ Items 1–7 touch different modules/live units — fully parallelizable.
   version, `namespace = "cert-manager"`, `create_namespace = true`, values
   `installCRDs: true`). Copy `providers.tf` verbatim from
   `terraform/modules/argocd/providers.tf`. New
-  `terraform/environments/{dev,prod}/cert-manager/terragrunt.hcl` mirroring
-  `terraform/environments/dev/argocd/terragrunt.hcl` (`dependency "eks"` with mock
+  `terraform/terragrunt/{dev,prod}/cert-manager/terragrunt.hcl` mirroring
+  `terraform/terragrunt/dev/argocd/terragrunt.hcl` (`dependency "eks"` with mock
   outputs). Add a `ClusterIssuer` via `helm/urle-chart/templates/clusterissuer.yaml`
   gated by a flag (keeps the ACME email/host env-valued, GitOps-consistent)
   rather than templating it into the Helm release. Verify:
@@ -588,7 +588,7 @@ Items 1–7 touch different modules/live units — fully parallelizable.
   `terraform/modules/ingress-nginx/{main,variables,versions,providers,outputs}.tf`
   — `helm_release "ingress-nginx"` (`https://kubernetes.github.io/ingress-nginx`,
   pinned, `namespace = "ingress-nginx"`, `create_namespace = true`). New
-  `terraform/environments/{dev,prod}/ingress-nginx/terragrunt.hcl` (argocd pattern).
+  `terraform/terragrunt/{dev,prod}/ingress-nginx/terragrunt.hcl` (argocd pattern).
   The existing `helm/urle-chart/templates/ingress.yaml` sets
   `ingressClassName: nginx` but nothing installs the controller — a repo-wide
   search finds nginx only in a code comment, so the Ingress is undeployed
@@ -608,14 +608,14 @@ Items 1–7 touch different modules/live units — fully parallelizable.
   already an EKS output), node IAM role + instance profile, interruption
   SQS queue, `helm_release "karpenter"` (OCI
   `oci://public.ecr.aws/karpenter/karpenter`, pinned), a `NodePool` +
-  `EC2NodeClass` scoped to instance types/AZs from `terraform/environments/*/env.hcl`.
+  `EC2NodeClass` scoped to instance types/AZs from `terraform/terragrunt/*/env.hcl`.
   Karpenter is **not** self-contained in its own module: also edit
   `terraform/modules/vpc/main.tf` to add `karpenter.sh/discovery = var.cluster_name`
   to `private_subnet_tags` and the node security group — the `EC2NodeClass`
   `subnetSelectorTerms`/`securityGroupSelectorTerms` resolve against those
   tags, and the VPC module currently tags subnets only with
   `kubernetes.io/cluster/<name>=shared`. New
-  `terraform/environments/{dev,prod}/karpenter/terragrunt.hcl` with `dependency "eks"`
+  `terraform/terragrunt/{dev,prod}/karpenter/terragrunt.hcl` with `dependency "eks"`
   and `dependency "vpc"`. Verify: scale a Deployment past current node
   capacity, confirm a new node joins (`kubectl get nodes -w`). Must precede
   item 12 — otherwise HPA replicas sit `Pending`.
@@ -626,12 +626,12 @@ Items 1–7 touch different modules/live units — fully parallelizable.
   IRSA role (OIDC trust to the operator's SA, policy scoped to
   `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:*:*:secret:urle/prod/*`),
   SA annotation `eks.amazonaws.com/role-arn` set via Helm values. New
-  `terraform/environments/{dev,prod}/external-secrets/terragrunt.hcl`. Verify:
+  `terraform/terragrunt/{dev,prod}/external-secrets/terragrunt.hcl`. Verify:
   `kubectl get pods -n external-secrets` all `Running`; IRSA trust policy
   resolves (`aws iam get-role`). Unblocks item 10.
 - **Item 6 (kube-prometheus-stack).** New self-contained
   `terraform/modules/kube-prometheus-stack/` Helm module +
-  `terraform/environments/{dev,prod}/monitoring/terragrunt.hcl` (same pattern as item
+  `terraform/terragrunt/{dev,prod}/monitoring/terragrunt.hcl` (same pattern as item
   1). Do **not** use an `helm/git-ops/monitoring.yaml` route unless you first
   widen the app-of-apps bootstrap glob in `terraform/modules/argocd/main.tf`
   (currently `{projects/*.yaml,apps/${var.environment}.yaml}`, so a new

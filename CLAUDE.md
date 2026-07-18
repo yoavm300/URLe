@@ -42,7 +42,7 @@ services/
     (each: app/ package with create_app(), run.py, Dockerfile, requirements.txt)
 helm/                    # Helm: one chart per service + postgres/redis + urle-chart umbrella,
                          #   plus git-ops/ (Argo CD AppProject + one Application per environment)
-terraform/               # Terraform modules + Terragrunt environments tree (global/dev/prod)
+terraform/               # Terraform modules + Terragrunt live tree (terragrunt/{global,dev,prod})
 k8s/                     # raw manifests by kind — minikube-local reference only
 docs/BOOTSTRAP.md        # one-time AWS/GitHub account setup
 

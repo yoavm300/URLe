@@ -1,5 +1,5 @@
 # Dev on EKS pulls the same released images as prod — one SemVer release, one
-# registry (terraform/environments/global/ecr-*). One-time fill: replace 095887736740 with
+# registry (terraform/terragrunt/global/ecr-*). One-time fill: replace 095887736740 with
 # the real account id (or read /urle/global/ecr/<name>/repository-url in SSM).
 # For local minikube use the raw k8s/ manifests instead (bare local images).
 urle-auth:
@@ -19,7 +19,7 @@ urle-redirect:
 
 ingress:
   # Dev is VPN-only: resolves via the urle-dev.internal private zone record
-  # (terraform/environments/dev/route53-private) pointing at the internal nginx NLB.
+  # (terraform/terragrunt/dev/route53-private) pointing at the internal nginx NLB.
   host: app.urle-dev.internal
 
 postgres:

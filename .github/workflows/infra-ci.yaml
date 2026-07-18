@@ -72,7 +72,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEV_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - name: Terragrunt plan per unit (dev)
-        working-directory: terraform/environments/dev
+        working-directory: terraform/terragrunt/dev
         env:
           # Without this the plan shows the personal EKS access entry being
           # destroyed — the CI role can't know it otherwise. Secret, not a
@@ -113,7 +113,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_PROD_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - name: Terragrunt plan per unit (prod)
-        working-directory: terraform/environments/prod
+        working-directory: terraform/terragrunt/prod
         env:
           ADMIN_PRINCIPAL_ARN: ${{ secrets.ADMIN_PRINCIPAL_ARN }}
         run: |
@@ -154,7 +154,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEV_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - name: Terragrunt plan per unit (global)
-        working-directory: terraform/environments/global
+        working-directory: terraform/terragrunt/global
         run: |
           status=0
           for unit in */; do

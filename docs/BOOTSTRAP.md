@@ -43,12 +43,12 @@ Safe to re-run.
 ## 2. Apply the global units (locally — CI can't bootstrap its own identity)
 
 **First** set your real domain in
-`terraform/environments/global/route53-public-zone/terragrunt.hcl` (it ships with an
+`terraform/terragrunt/global/route53-public-zone/terragrunt.hcl` (it ships with an
 `example.com` placeholder — applying that as-is creates a useless zone).
 Then:
 
 ```bash
-cd terraform/environments/global
+cd terraform/terragrunt/global
 terragrunt run --all apply
 ```
 
@@ -129,12 +129,12 @@ writes that secret.
 
 ## 5. Domain / public zone delegation
 
-`terraform/environments/global/route53-public-zone` creates the public hosted zone for
+`terraform/terragrunt/global/route53-public-zone` creates the public hosted zone for
 your domain. After the first apply, copy the zone's NS records to your
 registrar (one-time delegation):
 
 ```bash
-cd terraform/environments/global/route53-public-zone && terragrunt output name_servers
+cd terraform/terragrunt/global/route53-public-zone && terragrunt output name_servers
 ```
 
 ACM validation, the `urle.<domain>` app record (written by ExternalDNS), and

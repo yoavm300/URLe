@@ -5,7 +5,7 @@
 urle-auth:
   replicaCount: 3
   image:
-    # Set to the real ECR repository URL (output of terraform/environments/global/ecr-auth, or /urle/global/ecr/urle-auth/repository-url in SSM).
+    # Set to the real ECR repository URL (output of terraform/terragrunt/global/ecr-auth, or /urle/global/ecr/urle-auth/repository-url in SSM).
     repository: 095887736740.dkr.ecr.us-east-1.amazonaws.com/urle-auth
   pdb:
     enabled: true
@@ -24,7 +24,7 @@ urle-auth:
 urle-dashboard:
   replicaCount: 3
   image:
-    # Set to the real ECR repository URL (output of terraform/environments/global/ecr-dashboard, or /urle/global/ecr/urle-dashboard/repository-url in SSM).
+    # Set to the real ECR repository URL (output of terraform/terragrunt/global/ecr-dashboard, or /urle/global/ecr/urle-dashboard/repository-url in SSM).
     repository: 095887736740.dkr.ecr.us-east-1.amazonaws.com/urle-dashboard
   pdb:
     enabled: true
@@ -43,7 +43,7 @@ urle-dashboard:
 urle-redirect:
   replicaCount: 3
   image:
-    # Set to the real ECR repository URL (output of terraform/environments/global/ecr-redirect, or /urle/global/ecr/urle-redirect/repository-url in SSM).
+    # Set to the real ECR repository URL (output of terraform/terragrunt/global/ecr-redirect, or /urle/global/ecr/urle-redirect/repository-url in SSM).
     repository: 095887736740.dkr.ecr.us-east-1.amazonaws.com/urle-redirect
   pdb:
     enabled: true
@@ -59,7 +59,7 @@ urle-redirect:
       labels:
         release: kube-prometheus-stack
 
-# Public edge: CloudFront (terraform/environments/prod/cloudfront) -> ALB ->
+# Public edge: CloudFront (terraform/terragrunt/prod/cloudfront) -> ALB ->
 # ingress-nginx -> this Ingress -> Services -> pods. The ALB and its routing
 # to the nginx controller live in terraform (prod/ingress-nginx's edge
 # Ingress, alb class) — this Ingress is nginx-class and only does the
@@ -67,7 +67,7 @@ urle-redirect:
 # ALB->nginx->pod is plain HTTP in-VPC, so cert-manager stays out of prod.
 ingress:
   className: nginx
-  # One-time fill: the apex domain from terraform/environments/global/route53-public-zone.
+  # One-time fill: the apex domain from terraform/terragrunt/global/route53-public-zone.
   # CloudFront forwards the viewer's Host header end to end, so nginx matches
   # this public name — and request.host_url builds short links right. (The
   # CloudFront origin hostname only exists at the edge Ingress, never here.)
@@ -124,7 +124,7 @@ redis:
 # Sync urlshortener-secrets from Secrets Manager in prod (§10 item 10).
 externalSecrets:
   enabled: true
-  # Real ARN from `terragrunt output` of terraform/environments/prod/external-secrets.
+  # Real ARN from `terragrunt output` of terraform/terragrunt/prod/external-secrets.
   roleArn: arn:aws:iam::095887736740:role/urle-prod-external-secrets
   region: us-east-1
 

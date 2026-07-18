@@ -1,3 +1,11 @@
+# Fine-grained PAT (contents: read-only) for the private GitOps repo —
+# a manual SSM parameter (docs/BOOTSTRAP.md §4), never created by Terraform.
+data "aws_ssm_parameter" "gitops_token" {
+  count = var.gitops_token_ssm_path == "" ? 0 : 1
+
+  name = var.gitops_token_ssm_path
+}
+
 resource "helm_release" "argocd" {
   name             = "argocd"
   repository       = "https://argoproj.github.io/argo-helm"
@@ -6,26 +14,44 @@ resource "helm_release" "argocd" {
   namespace        = "argocd"
   create_namespace = true
 
-  # A single `values` yaml, never `set` blocks: Helm's --set parses unescaped
-  # commas/dots in values as extra key=value pairs.
-  values = var.ingress_host == "" ? [] : [
-    yamlencode({
-      configs = {
-        params = {
-          # TLS terminates at ingress-nginx; without this the argocd-server
-          # pod redirects to its own self-signed HTTPS in a loop.
-          "server.insecure" = true
+  # `values` yamls only, never `set` blocks: Helm's --set parses unescaped
+  # commas/dots in values as extra key=value pairs. Helm deep-merges the
+  # list, so each concern stays its own document.
+  values = concat(
+    var.ingress_host == "" ? [] : [
+      yamlencode({
+        configs = {
+          params = {
+            # TLS terminates at ingress-nginx; without this the argocd-server
+            # pod redirects to its own self-signed HTTPS in a loop.
+            "server.insecure" = true
+          }
         }
-      }
-      server = {
-        ingress = {
-          enabled          = true
-          ingressClassName = "nginx"
-          hostname         = var.ingress_host
+        server = {
+          ingress = {
+            enabled          = true
+            ingressClassName = "nginx"
+            hostname         = var.ingress_host
+          }
         }
-      }
-    })
-  ]
+      })
+    ],
+    var.gitops_token_ssm_path == "" ? [] : [
+      yamlencode({
+        configs = {
+          # Renders the argocd.argoproj.io/secret-type=repository Secret the
+          # repo-server needs to read the private GitOps repo over HTTPS.
+          repositories = {
+            gitops = {
+              url      = var.gitops_repo_url
+              username = "x-access-token" # any non-empty value; the PAT is what counts
+              password = data.aws_ssm_parameter.gitops_token[0].value
+            }
+          }
+        }
+      })
+    ],
+  )
 }
 
 # App-of-apps bootstrap: one root Application syncing the AppProject and this

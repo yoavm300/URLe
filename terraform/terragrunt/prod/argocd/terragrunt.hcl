@@ -53,6 +53,10 @@ inputs = {
   gitops_repo_url = "https://github.com/yoavm300/URLe.git"
   gitops_revision = "main"
 
+  # The repo is private — fine-grained PAT from the manual SSM parameter
+  # (docs/BOOTSTRAP.md §4). Shared by both environments, hence global.
+  gitops_token_ssm_path = "/urle/global/github/gitops-token"
+
   # VPN-only UI — resolves via the urle-prod.internal private zone.
   ingress_host = "argocd.urle-${local.env.env}.internal"
 }

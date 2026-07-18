@@ -115,6 +115,7 @@ the human-readable source of truth stays outside Terraform state.
 | `/urle/dev/vpn/wg-easy-password-hash` | dev VPN admin UI | `docker run ghcr.io/wg-easy/wg-easy wgpw '<password>'` |
 | `/urle/prod/vpn/wg-easy-password-hash` | prod VPN admin UI | same |
 | `/urle/prod/rds/master-password` | RDS master user | plain value, your choice |
+| `/urle/global/github/gitops-token` | Argo CD read access to this private repo | GitHub → Settings → Developer settings → Fine-grained tokens: this repo only, Repository permissions → Contents: Read-only |
 | `/urle/prod/secret-key` | Flask `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `/urle/prod/redis-password` | in-cluster Redis auth | plain value, your choice |
 

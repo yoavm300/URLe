@@ -46,6 +46,12 @@ variable "gitops_revision" {
   default     = "main"
 }
 
+variable "gitops_token_ssm_path" {
+  description = "SSM SecureString holding a fine-grained GitHub PAT (contents: read-only, GitOps repo only) so Argo CD can read a private repo; empty = no credential (public repo)"
+  type        = string
+  default     = ""
+}
+
 variable "ingress_host" {
   description = "Hostname for the ArgoCD UI ingress on the internal nginx class (empty = no ingress, port-forward only)"
   type        = string

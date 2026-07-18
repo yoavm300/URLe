@@ -81,6 +81,11 @@ resource "aws_secretsmanager_secret" "app" {
   name        = var.app_secret_name
   description = "URLe app secrets (composed by the rds-postgres module — do not edit by hand)"
   tags        = var.tags
+
+  # Derived data, recomposed from SSM on every bootstrap. The default 30-day
+  # recovery window holds the name hostage after a teardown ("scheduled for
+  # deletion" blocks recreation), so delete immediately instead.
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "app" {

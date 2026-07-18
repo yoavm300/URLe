@@ -172,5 +172,5 @@ Teardown is **`infra-destroy`** (typed confirmation required). ECR images,
 the ACM certificate, and the public zone survive by design (global/ units or
 `exclude`-from-destroy blocks). Prod RDS is destroyed with the rest of the
 environment — it lives inside the prod VPC, so sparing it would leave the
-teardown half-done — but a final snapshot (`urle-prod-final`) is always taken,
+teardown half-done — but a final snapshot (`urle-prod-final-<suffix>`, unique per bootstrap cycle) is always taken,
 and the master password/app secrets live on in SSM for the next bootstrap.

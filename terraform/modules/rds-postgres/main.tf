@@ -50,12 +50,20 @@ resource "aws_db_instance" "this" {
   vpc_security_group_ids = [aws_security_group.this.id]
   publicly_accessible    = false
 
-  backup_retention_period   = 7
-  deletion_protection       = var.deletion_protection
-  skip_final_snapshot       = false
-  final_snapshot_identifier = "${var.identifier}-final"
+  backup_retention_period = 7
+  deletion_protection     = var.deletion_protection
+  skip_final_snapshot     = false
+  # Suffixed per instance lifecycle: a fixed name collides with the snapshot
+  # left by the previous teardown ("DBSnapshotAlreadyExists") and blocks the
+  # destroy. The random_id is created at bootstrap and stable until the next
+  # one, so each cycle snapshots under a fresh name.
+  final_snapshot_identifier = "${var.identifier}-final-${random_id.final_snapshot.hex}"
 
   tags = var.tags
+}
+
+resource "random_id" "final_snapshot" {
+  byte_length = 4
 }
 
 # --- App secret composition -------------------------------------------------

@@ -58,3 +58,8 @@ jobs:
           -r services/dashboard/requirements.txt
           -r services/redirect/requirements.txt
       - run: ./nx affected -t lint smoke-test docker-build
+      # Self-Healing CI: on failure, Nx Cloud proposes a fix on the PR.
+      # No-op when everything passed — hence always(), so it still runs
+      # after a failed affected step.
+      - run: ./nx fix-ci
+        if: always()

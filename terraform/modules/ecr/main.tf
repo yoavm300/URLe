@@ -1,4 +1,4 @@
-resource "aws_ecr_repository" "this" {
+resource "aws_ecr_repository" "repository" {
   name = var.name
 
   # SemVer discipline: a published X.Y.Z can never be overwritten.
@@ -11,8 +11,8 @@ resource "aws_ecr_repository" "this" {
   tags = var.tags
 }
 
-resource "aws_ecr_lifecycle_policy" "this" {
-  repository = aws_ecr_repository.this.name
+resource "aws_ecr_lifecycle_policy" "lifecycle" {
+  repository = aws_ecr_repository.repository.name
 
   policy = jsonencode({
     rules = [
@@ -39,7 +39,7 @@ resource "aws_ssm_parameter" "repository_url" {
 
   name      = "${var.ssm_parameter_prefix}/ecr/${var.name}/repository-url"
   type      = "String"
-  value     = aws_ecr_repository.this.repository_url
+  value     = aws_ecr_repository.repository.repository_url
   overwrite = true
   tags      = var.tags
 }

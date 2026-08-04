@@ -1,3 +1,9 @@
+data "aws_partition" "current" {}
+
+locals {
+  eks_admin_policy_arn = "arn:${data.aws_partition.current.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+}
+
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.31"
@@ -23,7 +29,7 @@ module "eks" {
         principal_arn = var.admin_principal_arn
         policy_associations = {
           admin = {
-            policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            policy_arn = local.eks_admin_policy_arn
             access_scope = {
               type = "cluster"
             }
@@ -36,7 +42,7 @@ module "eks" {
         principal_arn = var.cicd_principal_arn
         policy_associations = {
           admin = {
-            policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            policy_arn = local.eks_admin_policy_arn
             access_scope = {
               type = "cluster"
             }

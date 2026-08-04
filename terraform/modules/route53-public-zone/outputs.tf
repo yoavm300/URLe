@@ -1,6 +1,6 @@
 output "zone_id" {
   description = "Public hosted zone id"
-  value       = aws_route53_zone.this.zone_id
+  value       = aws_route53_zone.zone.zone_id
 }
 
 output "zone_name" {
@@ -10,10 +10,10 @@ output "zone_name" {
 
 output "zone_arn" {
   description = "Zone ARN (ExternalDNS IRSA scoping)"
-  value       = aws_route53_zone.this.arn
+  value       = aws_route53_zone.zone.arn
 }
 
 output "name_servers" {
   description = "NS set to delegate at the registrar (one-time)"
-  value       = aws_route53_zone.this.name_servers
+  value       = aws_route53_zone.zone.name_servers
 }

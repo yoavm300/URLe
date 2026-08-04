@@ -5,7 +5,7 @@
 #
 # Rule order matters — first match wins by priority:
 #   0. rate limit  1. IP reputation  2. common rule set  3. known bad inputs
-resource "aws_wafv2_web_acl" "this" {
+resource "aws_wafv2_web_acl" "waf" {
   count = var.waf_enabled ? 1 : 0
 
   name        = "urle-cloudfront"

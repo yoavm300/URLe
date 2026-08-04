@@ -4,6 +4,7 @@
 # in-namespace SA the umbrella chart creates — trust is scoped to that SA
 # subject, permissions to urle/<env>/* only.
 data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
 
 resource "helm_release" "external_secrets" {
   name             = "external-secrets"
@@ -31,7 +32,7 @@ resource "aws_iam_policy" "read_secrets" {
         "secretsmanager:GetSecretValue",
         "secretsmanager:DescribeSecret",
       ]
-      Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.secrets_path_prefix}/*"
+      Resource = "arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.secrets_path_prefix}/*"
     }]
   })
 }

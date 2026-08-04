@@ -43,7 +43,7 @@ resource "random_password" "origin_verify" {
   special = false
 }
 
-resource "aws_cloudfront_distribution" "this" {
+resource "aws_cloudfront_distribution" "distribution" {
   enabled         = true
   is_ipv6_enabled = true
   comment         = "URLe prod edge (${var.domain_name})"
@@ -52,7 +52,7 @@ resource "aws_cloudfront_distribution" "this" {
 
   # For CLOUDFRONT-scoped WAFv2, the association is this attribute (the ACL's
   # full ARN), not a wafv2 association resource — those are regional-only.
-  web_acl_id = var.waf_enabled ? aws_wafv2_web_acl.this[0].arn : null
+  web_acl_id = var.waf_enabled ? aws_wafv2_web_acl.waf[0].arn : null
 
   origin {
     origin_id   = "alb"
@@ -121,8 +121,8 @@ resource "aws_route53_record" "alias" {
   type    = "A"
 
   alias {
-    name                   = aws_cloudfront_distribution.this.domain_name
-    zone_id                = aws_cloudfront_distribution.this.hosted_zone_id
+    name                   = aws_cloudfront_distribution.distribution.domain_name
+    zone_id                = aws_cloudfront_distribution.distribution.hosted_zone_id
     evaluate_target_health = false
   }
 }
@@ -133,8 +133,8 @@ resource "aws_route53_record" "alias_ipv6" {
   type    = "AAAA"
 
   alias {
-    name                   = aws_cloudfront_distribution.this.domain_name
-    zone_id                = aws_cloudfront_distribution.this.hosted_zone_id
+    name                   = aws_cloudfront_distribution.distribution.domain_name
+    zone_id                = aws_cloudfront_distribution.distribution.hosted_zone_id
     evaluate_target_health = false
   }
 }
@@ -144,7 +144,7 @@ resource "aws_ssm_parameter" "distribution_id" {
 
   name      = "${var.ssm_parameter_prefix}/cloudfront/distribution-id"
   type      = "String"
-  value     = aws_cloudfront_distribution.this.id
+  value     = aws_cloudfront_distribution.distribution.id
   overwrite = true
   tags      = var.tags
 }

@@ -12,6 +12,7 @@
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
+data "aws_partition" "current" {}
 
 locals {
   github_oidc_url = "token.actions.githubusercontent.com"
@@ -180,7 +181,7 @@ data "aws_iam_policy_document" "release_permissions" {
       "ecr:UploadLayerPart",
     ]
     resources = [
-      "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${var.ecr_repository_prefix}*",
+      "arn:${data.aws_partition.current.partition}:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${var.ecr_repository_prefix}*",
     ]
   }
 }

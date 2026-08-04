@@ -5,7 +5,7 @@
 # Terraform creates the zone only. The records inside arrive from elsewhere:
 # the app record from ExternalDNS (watching the prod Ingress), ACM validation
 # records from the acm unit, vpn-<env> records from the vpn units.
-resource "aws_route53_zone" "this" {
+resource "aws_route53_zone" "zone" {
   name = var.domain_name
   tags = var.tags
 }
@@ -17,7 +17,7 @@ resource "aws_ssm_parameter" "zone_id" {
 
   name  = "${var.ssm_parameter_prefix}/route53/zone-id"
   type  = "String"
-  value = aws_route53_zone.this.zone_id
+  value = aws_route53_zone.zone.zone_id
 
   # A stale value left by a prior destroy/apply cycle should always be
   # replaced with what the current apply actually produced.

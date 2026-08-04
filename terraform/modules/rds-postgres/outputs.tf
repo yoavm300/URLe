@@ -1,19 +1,19 @@
 output "address" {
   description = "DNS address of the instance"
-  value       = aws_db_instance.this.address
+  value       = aws_db_instance.postgres.address
 }
 
 output "port" {
   description = "Postgres port"
-  value       = aws_db_instance.this.port
+  value       = aws_db_instance.postgres.port
 }
 
 output "db_name" {
   description = "Initial database name"
-  value       = aws_db_instance.this.db_name
+  value       = aws_db_instance.postgres.db_name
 }
 
 output "security_group_id" {
   description = "Security group attached to the instance"
-  value       = aws_security_group.this.id
+  value       = aws_security_group.postgres.id
 }

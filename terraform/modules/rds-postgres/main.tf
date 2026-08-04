@@ -3,13 +3,13 @@ data "aws_ssm_parameter" "master_password" {
   name = var.master_password_ssm_path
 }
 
-resource "aws_db_subnet_group" "this" {
+resource "aws_db_subnet_group" "postgres" {
   name       = var.identifier
   subnet_ids = var.subnet_ids
   tags       = var.tags
 }
 
-resource "aws_security_group" "this" {
+resource "aws_security_group" "postgres" {
   name        = "${var.identifier}-postgres"
   description = "Postgres access for ${var.identifier}"
   vpc_id      = var.vpc_id
@@ -19,7 +19,7 @@ resource "aws_security_group" "this" {
 resource "aws_vpc_security_group_ingress_rule" "postgres" {
   for_each = toset(var.allowed_security_group_ids)
 
-  security_group_id            = aws_security_group.this.id
+  security_group_id            = aws_security_group.postgres.id
   description                  = "Postgres from cluster nodes"
   from_port                    = 5432
   to_port                      = 5432
@@ -27,7 +27,7 @@ resource "aws_vpc_security_group_ingress_rule" "postgres" {
   referenced_security_group_id = each.value
 }
 
-resource "aws_db_instance" "this" {
+resource "aws_db_instance" "postgres" {
   identifier     = var.identifier
   engine         = "postgres"
   engine_version = var.engine_version
@@ -46,8 +46,8 @@ resource "aws_db_instance" "this" {
   # module could never read the value to build DATABASE_URL).
   password = data.aws_ssm_parameter.master_password.value
 
-  db_subnet_group_name   = aws_db_subnet_group.this.name
-  vpc_security_group_ids = [aws_security_group.this.id]
+  db_subnet_group_name   = aws_db_subnet_group.postgres.name
+  vpc_security_group_ids = [aws_security_group.postgres.id]
   publicly_accessible    = false
 
   backup_retention_period = 7
@@ -102,7 +102,7 @@ resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app[0].id
   secret_string = jsonencode({
     SECRET_KEY            = data.aws_ssm_parameter.secret_key[0].value
-    DATABASE_URL          = "postgresql://${var.username}:${data.aws_ssm_parameter.master_password.value}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.db_name}"
+    DATABASE_URL          = "postgresql://${var.username}:${data.aws_ssm_parameter.master_password.value}@${aws_db_instance.postgres.address}:${aws_db_instance.postgres.port}/${var.db_name}"
     REDIS_PASSWORD        = data.aws_ssm_parameter.redis_password[0].value
     RATELIMIT_STORAGE_URI = "redis://:${data.aws_ssm_parameter.redis_password[0].value}@${var.redis_host}:6379/0"
   })
@@ -114,7 +114,7 @@ resource "aws_ssm_parameter" "address" {
 
   name      = "${var.ssm_parameter_prefix}/rds/address"
   type      = "String"
-  value     = aws_db_instance.this.address
+  value     = aws_db_instance.postgres.address
   overwrite = true
   tags      = var.tags
 }

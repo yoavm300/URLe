@@ -1,11 +1,11 @@
 output "distribution_id" {
   description = "Distribution id (cache invalidations)"
-  value       = aws_cloudfront_distribution.this.id
+  value       = aws_cloudfront_distribution.distribution.id
 }
 
 output "distribution_domain_name" {
   description = "The d123.cloudfront.net hostname behind the alias"
-  value       = aws_cloudfront_distribution.this.domain_name
+  value       = aws_cloudfront_distribution.distribution.domain_name
 }
 
 output "origin_verify_value" {

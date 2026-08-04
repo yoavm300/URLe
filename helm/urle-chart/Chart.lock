@@ -1,18 +1,18 @@
 dependencies:
 - name: urle-auth
-  repository: file://../auth
+  repository: ""
   version: 1.1.0
 - name: urle-dashboard
-  repository: file://../dashboard
+  repository: ""
   version: 1.1.0
 - name: urle-redirect
-  repository: file://../redirect
+  repository: ""
   version: 1.1.0
 - name: postgres
-  repository: file://../postgres
+  repository: ""
   version: 1.1.1
 - name: redis
-  repository: file://../redis
+  repository: ""
   version: 1.1.1
-digest: sha256:7a21d9e16c6f79dd332d749404797a60858d5fe773e3341a9b299108d83dfab8
-generated: "2026-07-15T23:34:39.114003932+03:00"
+digest: sha256:d0acdd1e77b8b8c685cdef4c92a89be4bcc026ba802fbfa9c11aadb98bd42ebc
+generated: "2026-08-05T00:01:06.335207017+03:00"

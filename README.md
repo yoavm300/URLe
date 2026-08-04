@@ -425,14 +425,16 @@ is a quick, reversible way to confirm that's the cause.
 
 ### Helm charts (`helm/`)
 
-- **One chart per service** (`helm/auth`, `helm/dashboard`, `helm/redirect`,
-  `helm/postgres`, `helm/redis`), composed by an **umbrella chart**
-  (`helm/urle-chart`) that's the only thing Argo CD ever deploys directly.
+- **One chart per service** (`helm/urle-chart/charts/urle-auth`,
+  `helm/urle-chart/charts/urle-dashboard`, `helm/urle-chart/charts/urle-redirect`,
+  `helm/urle-chart/charts/postgres`, `helm/urle-chart/charts/redis`), vendored
+  directly under the **umbrella chart** (`helm/urle-chart`) that's the only
+  thing Argo CD ever deploys directly.
 - Resources that reference more than one service — the shared ConfigMap and
   the single path-routed Ingress — live in the **umbrella chart's own
   `templates/`**, not in any one service's subchart.
 - The init-db Job is a Helm `post-install,pre-upgrade` hook owned by
-  `helm/dashboard` (same reasoning as the raw manifests: it's the only
+  `helm/urle-chart/charts/urle-dashboard` (same reasoning as the raw manifests: it's the only
   chart whose image has both models). Under Argo CD it runs as a sync-wave-1
   hook, after the datastores (wave 0) and before the app Deployments (wave 2).
 - `Chart.lock` **is committed** (Argo CD needs it to run `helm dependency
@@ -839,7 +841,7 @@ image used to initialize the full DB schema in Kubernetes.
 - `services/dashboard/app/__init__.py` — `create_app()` factory,
   near-identical to auth's. Registers `urls_bp`, `main_bp`, `health_bp`. Its
   `init-db` CLI command is *the* one used by `k8s/jobs/init-db-job.yaml` /
-  `helm/dashboard/templates/init-db-job.yaml` to create the full schema,
+  `helm/urle-chart/charts/urle-dashboard/templates/init-db-job.yaml` to create the full schema,
   since this is the only service importing both `User` (indirectly, via
   Flask-Login) and `Url` — auth never imports `Url`, redirect never imports
   `User`.
@@ -949,7 +951,7 @@ Argo CD deploys only the umbrella.
   chart version bumps via PR, `.claude/standards.md` §6 applies repo-wide,
   checked by `charts-ci`.
 
-**`helm/auth/`** — the auth microservice's chart (register/login/logout), a
+**`helm/urle-chart/charts/urle-auth/`** — the auth microservice's chart (register/login/logout), a
 3-replica Deployment with no persistent state.
 
 - `Chart.yaml` — `urle-auth`, chart version `1.1.0`, `appVersion "1.0.0"`
@@ -990,7 +992,7 @@ Argo CD deploys only the umbrella.
   (`autoscaling`, `pdb`, `topologySpread`, `serviceAccount.create`,
   `metrics.serviceMonitor`) each env's values file turns on selectively.
 
-**`helm/dashboard/`** — the dashboard microservice's chart, identical
+**`helm/urle-chart/charts/urle-dashboard/`** — the dashboard microservice's chart, identical
 pattern to auth plus a one-shot database-schema-init Job.
 
 - `Chart.yaml` — `urle-dashboard`, chart version `1.1.0`, `appVersion "1.0.0"`.
@@ -1011,7 +1013,7 @@ pattern to auth plus a one-shot database-schema-init Job.
   that starts before it finishes crash-loops until the schema exists.
 - `values.yaml` — Same shape as auth's, plus `initDb.backoffLimit: 5`.
 
-**`helm/redirect/`** — the public hot-path microservice's chart, the
+**`helm/urle-chart/charts/urle-redirect/`** — the public hot-path microservice's chart, the
 leanest of the three app charts and the one most likely to be autoscaled.
 
 - `Chart.yaml` — `urle-redirect`, chart version `1.1.0`, `appVersion "1.0.0"`.
@@ -1025,7 +1027,7 @@ leanest of the three app charts and the one most likely to be autoscaled.
 - `values.yaml` — Same shape; lightest resources of the three (`100m/128Mi`
   request, `500m/256Mi` limit — no scrypt work here).
 
-**`helm/postgres/`** — in-cluster PostgreSQL chart, dev/local only — prod
+**`helm/urle-chart/charts/postgres/`** — in-cluster PostgreSQL chart, dev/local only — prod
 replaces this entirely with RDS.
 
 - `Chart.yaml` — `postgres`, chart version `1.1.1`, `appVersion "16.6"`;
@@ -1048,7 +1050,7 @@ replaces this entirely with RDS.
   (must match `POSTGRES_USER`); `persistence.size: 1Gi`; resources
   `100m/128Mi` / `500m/256Mi`.
 
-**`helm/redis/`** — shared, disposable rate-limit-counter store — no
+**`helm/urle-chart/charts/redis/`** — shared, disposable rate-limit-counter store — no
 persistence, since losing the counters is harmless.
 
 - `Chart.yaml` — `redis`, chart version `1.1.1`, `appVersion "7.4.2"`.
@@ -1741,7 +1743,7 @@ running permanently.
 **`terraform/terragrunt/dev/`** — the cheap, VPN-only, single-AZ-light
 environment used for iteration and (2026-07-19) capturing the book's Argo
 CD/Grafana screenshots — smaller EKS nodes, no RDS/CloudFront/ACM/
-alb-controller/external-dns (Postgres runs in-cluster via `helm/postgres`
+alb-controller/external-dns (Postgres runs in-cluster via `helm/urle-chart/charts/postgres`
 instead), everything gated behind WireGuard rather than a public ALB, torn
 down between sessions for cost.
 

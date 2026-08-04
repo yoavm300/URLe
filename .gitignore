@@ -18,9 +18,6 @@ instance/
 # Kubernetes — never commit the filled-in Secret (the secrets.example/ copy is fine)
 k8s/secrets/
 
-# Helm — packaged dependencies are rebuilt from file:// paths (Chart.lock is committed)
-helm/urle-chart/charts/*.tgz
-
 # Terraform / Terragrunt
 .terraform/
 .terraform.lock.hcl

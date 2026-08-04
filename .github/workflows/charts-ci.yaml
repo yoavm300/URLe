@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: helm lint helm/auth helm/dashboard helm/redirect helm/postgres helm/redis
-      # "update" (not "build") since no Chart.lock is committed — it always
-      # recomputes from Chart.yaml + the file:// subchart paths, so it
-      # self-heals even if the vendored helm/urle-chart/charts/*.tgz drift.
+      - run: helm lint helm/urle-chart/charts/urle-auth helm/urle-chart/charts/urle-dashboard helm/urle-chart/charts/urle-redirect helm/urle-chart/charts/postgres helm/urle-chart/charts/redis
+      # Subcharts are vendored directly under helm/urle-chart/charts/ (no
+      # repository: field, no fetch) — this just verifies Chart.lock's
+      # recorded versions still match what's committed there.
       - run: helm dependency update helm/urle-chart
       - run: helm lint helm/urle-chart
       - name: Render umbrella chart for both environments
@@ -45,14 +45,27 @@ jobs:
         run: |
           base=$(git merge-base "origin/$GITHUB_BASE_REF" HEAD)
           failed=0
-          for chart in auth dashboard redirect postgres redis urle-chart; do
-            if ! git diff --quiet "$base" -- "helm/$chart"; then
-              old=$(git show "$base:helm/$chart/Chart.yaml" 2>/dev/null | yq '.version' || echo "")
-              new=$(yq '.version' "helm/$chart/Chart.yaml")
+          for chart in urle-auth urle-dashboard urle-redirect postgres redis; do
+            dir="helm/urle-chart/charts/$chart"
+            if ! git diff --quiet "$base" -- "$dir"; then
+              old=$(git show "$base:$dir/Chart.yaml" 2>/dev/null | yq '.version' || echo "")
+              new=$(yq '.version' "$dir/Chart.yaml")
               if [ "$old" = "$new" ]; then
-                echo "::error::helm/$chart changed but Chart.yaml version is still $new"
+                echo "::error::$dir changed but Chart.yaml version is still $new"
                 failed=1
               fi
             fi
           done
+
+          # Umbrella: own files only — each subchart is already checked
+          # above, so excluding charts/ here avoids double-flagging a
+          # subchart-only change as an umbrella change.
+          if ! git diff --quiet "$base" -- helm/urle-chart ':!helm/urle-chart/charts'; then
+            old=$(git show "$base:helm/urle-chart/Chart.yaml" 2>/dev/null | yq '.version' || echo "")
+            new=$(yq '.version' helm/urle-chart/Chart.yaml)
+            if [ "$old" = "$new" ]; then
+              echo "::error::helm/urle-chart changed but Chart.yaml version is still $new"
+              failed=1
+            fi
+          fi
           exit $failed

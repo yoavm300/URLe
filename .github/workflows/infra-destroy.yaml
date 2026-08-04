@@ -61,6 +61,34 @@ jobs:
         with:
           role-to-assume: ${{ inputs.env == 'dev' && vars.AWS_DEV_CI_ROLE_ARN || vars.AWS_PROD_CI_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+      # Karpenter-launched nodes exist outside Terraform state: destroying the
+      # karpenter unit deletes the NodePool CR without waiting for the nodes,
+      # then uninstalls the controller that would have terminated them. The
+      # orphans keep ENIs on the cluster security group and the eks unit's
+      # destroy fails with DependencyViolation. Drain them first, while the
+      # controller is still alive — and terminate directly whatever remains.
+      - name: Drain Karpenter nodes
+        env:
+          CLUSTER: urle-${{ inputs.env }} # must match cluster_name in terragrunt/<env>/env.hcl
+        run: |
+          set -uo pipefail
+          if aws eks describe-cluster --name "$CLUSTER" >/dev/null 2>&1; then
+            aws eks update-kubeconfig --name "$CLUSTER"
+            # NodePool finalizers block deletion until the controller has
+            # drained and terminated every node it launched.
+            kubectl delete nodepools.karpenter.sh --all --ignore-not-found --wait --timeout=10m \
+              || echo "::warning::NodePool deletion timed out or failed — falling back to direct termination"
+          fi
+          ids=$(aws ec2 describe-instances \
+            --filters "Name=tag-key,Values=karpenter.sh/nodepool" \
+                      "Name=tag:kubernetes.io/cluster/$CLUSTER,Values=owned" \
+                      "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query 'Reservations[].Instances[].InstanceId' --output text)
+          if [ -n "$ids" ]; then
+            echo "Terminating leftover Karpenter instances: $ids"
+            aws ec2 terminate-instances --instance-ids $ids
+            aws ec2 wait instance-terminated --instance-ids $ids
+          fi
       - name: Terragrunt destroy
         working-directory: terraform/terragrunt/${{ inputs.env }}
         env:

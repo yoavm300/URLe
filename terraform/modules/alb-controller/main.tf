@@ -57,12 +57,6 @@ resource "helm_release" "alb_controller" {
 # the edge Ingress also requires the secret X-Origin-Verify header the
 # cloudfront module attaches to origin requests.
 
-data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
-  count = var.cloudfront_only_sg_name != "" ? 1 : 0
-
-  name = "com.amazonaws.global.cloudfront.origin-facing"
-}
-
 resource "aws_security_group" "cloudfront_only" {
   count = var.cloudfront_only_sg_name != "" ? 1 : 0
 

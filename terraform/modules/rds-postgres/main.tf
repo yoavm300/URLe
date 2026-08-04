@@ -1,8 +1,3 @@
-# Created manually, read-only here (see docs/BOOTSTRAP.md).
-data "aws_ssm_parameter" "master_password" {
-  name = var.master_password_ssm_path
-}
-
 resource "aws_db_subnet_group" "postgres" {
   name       = var.identifier
   subnet_ids = var.subnet_ids
@@ -72,16 +67,6 @@ resource "random_id" "final_snapshot" {
 # DATABASE_URL only this module can derive with the manually-bootstrapped app
 # credentials (docs/BOOTSTRAP.md) — closing the previously-undocumented gap of
 # who creates that secret. Nothing else writes it.
-
-data "aws_ssm_parameter" "secret_key" {
-  count = var.app_secret_name != "" ? 1 : 0
-  name  = var.secret_key_ssm_path
-}
-
-data "aws_ssm_parameter" "redis_password" {
-  count = var.app_secret_name != "" ? 1 : 0
-  name  = var.redis_password_ssm_path
-}
 
 resource "aws_secretsmanager_secret" "app" {
   count = var.app_secret_name != "" ? 1 : 0

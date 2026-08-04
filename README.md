@@ -1298,6 +1298,9 @@ direct internet access.
   prefix list. Terraform installs only the controller — the ALB itself is
   created later by the controller reacting to the edge Ingress the prod
   `ingress-nginx` unit deploys.
+- `data.tf` — Looks up AWS's managed CloudFront origin-facing prefix list by
+  name (`com.amazonaws.global.cloudfront.origin-facing`), feeding the
+  optional origin-cloaking security group above.
 - `outputs.tf` — `iam_role_arn`, `cloudfront_only_sg_id` (empty string if
   cloaking disabled — a misconfigured empty string here silently disables
   origin cloaking with no error).
@@ -1313,15 +1316,17 @@ direct internet access.
 root Application that then owns everything under `helm/git-ops/` — after
 this applies, further Kubernetes state changes flow through Argo CD
 reconciling from Git, not further `terraform apply`s.
-- `main.tf` — Reads an optional SSM SecureString (a fine-grained GitHub PAT
-  for the private GitOps repo). Installs `argo-cd` with conditional value
-  blocks: an Ingress + `server.insecure = true` if `ingress_host` is set
-  (without this the pod redirects to its own self-signed HTTPS in a loop,
-  since TLS already terminates at ingress-nginx); a `repositories` config
-  block if a PAT path is given. Then installs `urle-root` via
-  `argocd-apps`, pointing at `helm/git-ops` with a `directory.include` glob
-  of `{projects/*.yaml,<environment>.yaml}` and automated `prune`+`selfHeal`
+- `main.tf` — Installs `argo-cd` with conditional value blocks: an Ingress +
+  `server.insecure = true` if `ingress_host` is set (without this the pod
+  redirects to its own self-signed HTTPS in a loop, since TLS already
+  terminates at ingress-nginx); a `repositories` config block if a PAT path
+  is given. Then installs `urle-root` via `argocd-apps`, pointing at
+  `helm/git-ops` with a `directory.include` glob of
+  `{projects/*.yaml,<environment>.yaml}` and automated `prune`+`selfHeal`
   sync — this is the literal seam between Terraform and GitOps.
+- `data.tf` — Reads an optional SSM SecureString (a fine-grained GitHub PAT
+  for the private GitOps repo), consumed by `main.tf`'s conditional
+  `repositories` block.
 - `outputs.tf` — `namespace`, `root_application`.
 - `providers.tf` — Same per-module `helm` provider pattern.
 - `variables.tf` — `environment` (selects which `helm/git-ops/<env>.yaml`
@@ -1347,20 +1352,22 @@ deliberately does **not** create the ClusterIssuer itself.
 front of the ALB, with an anti-bypass secret header, a security-headers
 policy, and (via `waf.tf`) an attached WAF. A pass-through edge for a
 server-rendered Flask app, not a static-site setup.
-- `main.tf` — Looks up four AWS-managed policies by name:
-  `Managed-CachingDisabled`, `Managed-CachingOptimized`,
-  `Managed-AllViewer` (forwards the Host header — load-bearing, since the
-  app builds short links from `request.host_url`), `Managed-
-  SecurityHeadersPolicy`. Generates `random_password.origin_verify` sent as
-  a custom header `X-Origin-Verify` on every origin request — "origin
-  cloaking, half 2" (half 1 is the CloudFront-only SG in `alb-controller`):
-  the prefix-list SG alone admits every CloudFront customer's origin-facing
+- `main.tf` — Generates `random_password.origin_verify` sent as a custom
+  header `X-Origin-Verify` on every origin request — "origin cloaking, half
+  2" (half 1 is the CloudFront-only SG in `alb-controller`): the
+  prefix-list SG alone admits every CloudFront customer's origin-facing
   ranges, so this secret header is what actually distinguishes this
   distribution's traffic. Default behavior forwards everything uncached; an
   `/static/*` behavior uses `caching_optimized`. `origin.domain_name` does
   NOT need to resolve at apply time — CloudFront resolves origins
   per-request, and ExternalDNS populates it once the app's Ingress exists.
   Creates A + AAAA alias Route53 records.
+- `data.tf` — Looks up four AWS-managed policies by name:
+  `Managed-CachingDisabled`, `Managed-CachingOptimized`,
+  `Managed-AllViewer` (forwards the Host header — load-bearing, since the
+  app builds short links from `request.host_url`), `Managed-
+  SecurityHeadersPolicy` — consumed by the distribution's cache/origin
+  behaviors in `main.tf`.
 - `outputs.tf` — `distribution_id`, `distribution_domain_name`,
   `origin_verify_value` (sensitive) — the secret header value the ALB edge
   rule must require.
@@ -1415,6 +1422,10 @@ module depends on for cluster connection info.
   addon, `AssumeRole` fails and the Karpenter controller crash-loops). One
   managed node group: `ami_type = "AL2023_x86_64_STANDARD"` explicitly set
   (AL2 AMIs don't exist for k8s ≥1.33).
+- `data.tf` — `aws_partition` lookup, avoiding a hardcoded partition in the
+  access-policy ARN below.
+- `locals.tf` — `eks_admin_policy_arn` — the `AmazonEKSClusterAdminPolicy`
+  ARN built from the partition lookup, referenced by both access entries.
 - `outputs.tf` — `cluster_name`, `cluster_endpoint`,
   `cluster_certificate_authority_data`, `node_security_group_id` (source
   for RDS ingress), `oidc_provider_arn` (the IRSA federation root every
@@ -1460,6 +1471,8 @@ from AWS Secrets Manager instead of secrets living in Git or CI.
   role's trust is scoped to a specific in-namespace ServiceAccount subject,
   not the operator's own namespace — trust boundary and IAM permission
   boundary are two independent, both-must-hold checks.
+- `data.tf` — `aws_caller_identity` + `aws_partition` lookups, used to build
+  the account/partition-scoped Secrets Manager ARN in the IAM policy above.
 - `outputs.tf` — `namespace`, `role_arn` (set as `externalSecrets.roleArn`
   in `helm/urle-chart/values-prod.yaml` — a manual, not automatic,
   hand-off).
@@ -1478,18 +1491,27 @@ CI secrets.
   `token.actions.githubusercontent.com` (AWS validates tokens against
   trusted root CAs, ignoring the required-but-cosmetic `thumbprint_list`;
   one provider per URL per account — a pre-existing one must be imported,
-  not duplicated). `ci_service_actions` — broad but service-scoped, not
-  `AdministratorAccess`; uses inline policies since attached-policy count
-  is capped at 10 and this list only grows; specifically calls out that
-  `kms`/`logs`/`autoscaling` permissions are required just to *describe* an
-  EKS cluster. For each of `["dev", "prod"]`: an IAM role
-  (`<prefix>-<env>-cicd`) trusted via `sts:AssumeRoleWithWebIdentity`,
-  gated by `aud=sts.amazonaws.com` AND `sub=repo:<repo>:environment:<env>`
-  — trust scoped per **GitHub Environment**, not per branch. Separately, a
-  `release` role trusted only when `sub` matches
-  `repo:<repo>:ref:refs/tags/v*` — only SemVer tag pushes can assume it —
-  permissioned narrowly to ECR push actions resource-scoped to
-  `ecr_repository_prefix*`.
+  not duplicated). For each of `["dev", "prod"]`: an IAM role
+  (`<prefix>-<env>-cicd`) trusted via the `ci_trust` policy document
+  (`data.tf`), attached to the `ci_permissions` document. Separately, a
+  `release` role trusted via `release_trust`, attached to
+  `release_permissions` — permissioned narrowly to ECR push actions
+  resource-scoped to `ecr_repository_prefix*`.
+- `data.tf` — Four `aws_iam_policy_document`s: `ci_trust`/`release_trust`
+  (federated OIDC trust, gated by `aud=sts.amazonaws.com` AND, respectively,
+  `sub=repo:<repo>:environment:<env>` — trust scoped per **GitHub
+  Environment**, not per branch — or `sub` matching
+  `repo:<repo>:ref:refs/tags/v*`, so only SemVer tag pushes can assume the
+  release role), `ci_permissions`/`release_permissions` (the actions each
+  role is actually granted). Plus `aws_caller_identity`/`aws_region`/
+  `aws_partition` lookups used to scope the release role's ECR resource ARN.
+- `locals.tf` — `ci_service_actions` — broad but service-scoped, not
+  `AdministratorAccess`; granted via inline policies (not managed
+  attachments) since attached-policy count is capped at 10 and this list
+  only grows; specifically includes `kms`/`logs`/`autoscaling` permissions
+  required just to *describe* an EKS cluster. Also `environments`
+  (`["dev", "prod"]`) and the OIDC provider URL string, both reused across
+  `data.tf` and `main.tf`.
 - `outputs.tf` — `oidc_provider_arn`, `dev_ci_role_arn`,
   `prod_ci_role_arn`, `release_role_arn` — exactly what the GitHub Actions
   workflows reference via `role-to-assume` (as repo variables
@@ -1510,8 +1532,10 @@ with CloudFront origin-cloaking enforcement.
   `edge.enabled` (prod), also declares a `kubernetes_ingress_v1` (`alb`
   class) that the AWS LB Controller turns into a public ALB whose only
   backend is the nginx controller pods, gated by the `X-Origin-Verify`
-  header check and the CloudFront-only security group; plus a data lookup
-  reading back the NLB's assigned hostname.
+  header check and the CloudFront-only security group.
+- `data.tf` — Reads back the NLB's assigned hostname from the controller's
+  Kubernetes Service once it exists (`depends_on` the helm release) — feeds
+  the `lb_hostname` output below.
 - `outputs.tf` — `namespace`, `lb_hostname` (the controller's NLB DNS name
   — consumed directly by `route53-private` to point `argocd.*`/`grafana.*`
   CNAMEs at the internal NLB).
@@ -1574,21 +1598,24 @@ cluster and app observability.
 **`rds-postgres/`** — Provisions the prod managed Postgres instance and is
 the sole owner/composer of the Secrets Manager secret External Secrets
 syncs into the cluster.
-- `main.tf` — Reads a manually-bootstrapped master password from SSM;
-  creates a DB subnet group, a dedicated security group allowing 5432 only
-  from EKS-node security groups, and the `aws_db_instance` (encrypted
-  storage, `publicly_accessible=false`, 7-day backups, and a
+- `main.tf` — Creates a DB subnet group, a dedicated security group allowing
+  5432 only from EKS-node security groups, and the `aws_db_instance`
+  (encrypted storage, `publicly_accessible=false`, 7-day backups, and a
   **randomized** final-snapshot-identifier suffix — fixing a real incident
   where a fixed name collided with a previous teardown's leftover snapshot
   and blocked destroy with `DBSnapshotAlreadyExists`). Is the sole
-  owner/composer of the app's Secrets Manager secret: reads `SECRET_KEY`
-  and the Redis password from SSM, combines them with the `DATABASE_URL`
-  it alone can derive, writes one JSON secret with
-  `recovery_window_in_days=0` (also deliberate — the default 30-day window
-  would hold the secret name hostage across a teardown/rebootstrap cycle).
-  The module the maintainer's own `MANIFEST.md` had flagged as a "[P0]" gap
-  (no documented way to get `urlshortener-secrets` into prod) — what the
-  `ExternalSecret` template actually reads from.
+  owner/composer of the app's Secrets Manager secret: combines `SECRET_KEY`
+  and the Redis password (`data.tf`) with the `DATABASE_URL` it alone can
+  derive, writes one JSON secret with `recovery_window_in_days=0` (also
+  deliberate — the default 30-day window would hold the secret name
+  hostage across a teardown/rebootstrap cycle). The module the maintainer's
+  own `MANIFEST.md` had flagged as a "[P0]" gap (no documented way to get
+  `urlshortener-secrets` into prod) — what the `ExternalSecret` template
+  actually reads from.
+- `data.tf` — Reads three manually-bootstrapped SSM values: the master
+  password (used directly by `main.tf`'s `aws_db_instance`), and
+  `SECRET_KEY`/the Redis password (used by the app-secret composition
+  above).
 - `outputs.tf` — `address`, `port`, `db_name`, `security_group_id`.
 - `variables.tf` — `identifier`, `engine_version` (default `16.14`),
   `instance_class` (default `db.t4g.micro`), `allocated_storage` (default
@@ -1654,24 +1681,29 @@ find subnets/security groups.
 **`vpn/`** — Stands up a single EC2 instance running WireGuard (wg-easy)
 behind Caddy for TLS — the sole front door to every admin surface and to
 the entire dev environment, which has no other public ingress.
-- `main.tf` — Provisions one EC2 instance (Amazon Linux 2023, latest AMI
-  lookup), in the public subnet, SSM-only management (no SSH, no port 22 —
-  admin sessions logged to CloudTrail via SSM Session Manager). Security
-  group opens UDP 51820 (WireGuard) and TCP 443 (the wg-easy admin UI,
-  reverse-proxied through Caddy) to the world. An Elastic IP is allocated
-  *before* the instance so `user_data` can bake the stable address into
-  `WG_HOST` at boot. `user_data` (rendered from `user_data.sh.tpl`) also
-  carries `password_hash` (from a manually-bootstrapped SSM SecureString —
-  same bootstrap-credential pattern as RDS's master password), `allowed_ips`
-  (the VPC CIDR — split-tunnel, only VPC traffic routes through the
-  tunnel), and `dns_server` (the VPC's reserved `.2` resolver, pushed to
-  WireGuard peers so `*.internal` private-zone names resolve over the
-  tunnel — exactly the mechanism that resolves `argocd.urle-dev.internal`
-  once connected). IMDSv2 enforced; root volume encrypted gp3. Optional
-  public `vpn-<env>.<domain>` A record. Sole front door to every admin
-  surface and to dev itself — but a still-open gap: the EKS control-plane
-  security group doesn't admit traffic from this VPN's security group, so
-  `kubectl` breaks whenever the tunnel is active.
+- `main.tf` — Provisions one EC2 instance (Amazon Linux 2023, AMI looked up
+  in `data.tf`), in the public subnet, SSM-only management (no SSH, no port
+  22 — admin sessions logged to CloudTrail via SSM Session Manager).
+  Security group opens UDP 51820 (WireGuard) and TCP 443 (the wg-easy admin
+  UI, reverse-proxied through Caddy) to the world. An Elastic IP is
+  allocated *before* the instance so `user_data` can bake the stable
+  address into `WG_HOST` at boot. `user_data` (rendered from
+  `user_data.sh.tpl`) also carries `password_hash` (read in `data.tf` from
+  a manually-bootstrapped SSM SecureString — same bootstrap-credential
+  pattern as RDS's master password), `allowed_ips` (the VPC CIDR —
+  split-tunnel, only VPC traffic routes through the tunnel), and
+  `dns_server` (the VPC's reserved `.2` resolver, pushed to WireGuard peers
+  so `*.internal` private-zone names resolve over the tunnel — exactly the
+  mechanism that resolves `argocd.urle-dev.internal` once connected).
+  IMDSv2 enforced; root volume encrypted gp3. Optional public
+  `vpn-<env>.<domain>` A record. Sole front door to every admin surface and
+  to dev itself — but a still-open gap: the EKS control-plane security
+  group doesn't admit traffic from this VPN's security group, so `kubectl`
+  breaks whenever the tunnel is active.
+- `data.tf` — Latest Amazon Linux 2023 AMI lookup
+  (`al2023-ami-2023.*-x86_64`, amazon-owned), the manually-bootstrapped
+  `password_hash` SSM SecureString, and an `aws_partition` lookup (keeps
+  the instance role's SSM-managed-policy ARN partition-agnostic).
 - `outputs.tf` — `public_ip` (the stable EIP, i.e. `WG_HOST`),
   `security_group_id` (exactly what's still missing from the EKS cluster's
   allowed ingress list — the fix for the "kubectl times out over VPN" gap).

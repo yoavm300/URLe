@@ -82,19 +82,18 @@ Project_URLe/
 ├── k8s/                                           # legacy raw manifests — keep until Helm parity is validated
 ├── pyproject.toml                                 # ruff configuration (§7)
 ├── helm/
+│   ├── auth/                   # chart urle-auth: Deployment, Service, _helpers.tpl
+│   ├── dashboard/              # chart urle-dashboard: Deployment, Service, init-db Job (hook), _helpers.tpl
+│   ├── redirect/               # chart urle-redirect: Deployment, Service, _helpers.tpl
+│   ├── postgres/                # StatefulSet + headless Service + PVC (dev/local only)
+│   ├── redis/                   # Deployment + Service
 │   ├── git-ops/                 # Argo CD: projects/urle-project.yaml + one Application per env
 │   │                            #   (dev.yaml, prod.yaml) pointing at helm/urle-chart
-│   └── urle-chart/              # UMBRELLA chart: owns the cross-cutting shared
-│       │                        #   ConfigMap and the single Ingress that routes
-│       │                        #   to all 3 app services (see §4); postgres
-│       │                        #   subchart disabled where RDS is used
-│       └── charts/              # the five subcharts, vendored directly (no
-│           │                    #   file:// dependency, no packaged .tgz)
-│           ├── urle-auth/       # chart urle-auth: Deployment, Service, _helpers.tpl
-│           ├── urle-dashboard/  # chart urle-dashboard: Deployment, Service, init-db Job (hook), _helpers.tpl
-│           ├── urle-redirect/   # chart urle-redirect: Deployment, Service, _helpers.tpl
-│           ├── postgres/        # StatefulSet + headless Service + PVC (dev/local only)
-│           └── redis/           # Deployment + Service
+│   └── urle-chart/              # UMBRELLA chart: depends on the five above;
+│                                 #   owns the cross-cutting shared ConfigMap and
+│                                 #   the single Ingress that routes to all 3
+│                                 #   app services (see §4); postgres subchart
+│                                 #   disabled where RDS is used
 ├── terraform/
 │   ├── modules/                 # plain Terraform, no env-specific values
 │   │   ├── vpc/
@@ -133,9 +132,8 @@ Project_URLe/
 ## 4. Helm charts
 
 - **One chart per service** (`urle-auth`, `urle-dashboard`, `urle-redirect`,
-  `postgres`, `redis`), vendored directly under `helm/urle-chart/charts/`;
-  the `urle` **umbrella chart** lists them all as dependencies in
-  `Chart.yaml` and is the only thing Argo CD deploys.
+  `postgres`, `redis`); the `urle` **umbrella chart** lists them all as
+  dependencies in `Chart.yaml` and is the only thing Argo CD deploys.
 - Each app chart reproduces its service's `k8s/deployment-*.yaml` /
   `k8s/service-*.yaml` behavior exactly: replicas, `/healthz`
   liveness+readiness, non-root security context, resource limits, Secret
@@ -151,7 +149,7 @@ Project_URLe/
   - `helm/urle-chart/templates/ingress.yaml` — the single Ingress with the path
     rules from §1, pointing at `urle-auth`/`urle-dashboard`/`urle-redirect`
     Service names (mirrors `k8s/ingress/main-ingress.yaml`).
-- The init-db Job is owned by **`helm/urle-chart/charts/urle-dashboard`** specifically (not
+- The init-db Job is owned by **`helm/dashboard`** specifically (not
   a generic app-chart concern anymore) — it's the only service importing
   both models. It's a Helm **`post-install,pre-upgrade` hook** with
   `hook-delete-policy: before-hook-creation` (pre-install would deadlock on
@@ -178,7 +176,7 @@ runs all 3 services via `strategy.matrix` (a release always ships all 3).
 | Workflow | Paths | Jobs |
 |---|---|---|
 | `app-ci.yaml` | `services/**`, `shared/**`, `pyproject.toml`, `nx.json`, `.nxignore` | single `ci` job: `nx affected -t lint smoke-test docker-build` — **ruff check** + **ruff format --check** (on `shared/` + `services/<service>/`), smoke-test (`create_app()` boots, `/healthz` returns 200), docker build (`-f services/<service>/Dockerfile .`, repo root context) per affected service |
-| `app-release.yaml` | tag push `v*.*.*` (ships all 3 images at a matching version) | matrixed `push-image` (auth/dashboard/redirect): build → push to that service's ECR repo tagged `MAJOR.MINOR.PATCH` (+ git SHA); then one `bump-chart` job loops all 3 services, bumping each `helm/urle-chart/charts/urle-<service>` `appVersion`/`version` and the umbrella chart's dependency version, then the umbrella `version`/`appVersion` once, via a single PR |
+| `app-release.yaml` | tag push `v*.*.*` (ships all 3 images at a matching version) | matrixed `push-image` (auth/dashboard/redirect): build → push to that service's ECR repo tagged `MAJOR.MINOR.PATCH` (+ git SHA); then one `bump-chart` job loops all 3 services, bumping each `helm/<service>` `appVersion`/`version` and the umbrella chart's dependency version, then the umbrella `version`/`appVersion` once, via a single PR |
 | `charts-ci.yaml` | `helm/**` | `helm lint` + `helm template` all charts; verify chart `version` was bumped |
 | `infra-ci.yaml` | `terraform/**` | `terraform fmt -check`, `terraform validate` (always-on check) + per-unit `terragrunt plan` per env on PRs, gated by `DEV_UP`/`PROD_UP` repo variables (plan fails against a torn-down env by nature) |
 | `infra-apply.yaml` | `workflow_dispatch` (env choice) | fresh per-unit plan → `terragrunt run --all apply`; prod gated by the `prod` GitHub Environment's required reviewer |
@@ -432,11 +430,11 @@ P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
     item 5. Verify: deleting the K8s Secret in prod causes External Secrets
     to recreate it within its refresh interval, no manual `kubectl create
     secret` needed.
-11. `[P0]` **Redis auth.** `helm/urle-chart/charts/redis` has no `requirepass`; anything
+11. `[P0]` **Redis auth.** `helm/redis` has no `requirepass`; anything
     in-cluster can read/flush the rate-limit store. Add `requirepass`
     sourced from `existingSecret` (extend `urlshortener-secrets` with a
     `REDIS_PASSWORD` key) and pass `--requirepass` in
-    `helm/urle-chart/charts/redis/templates/deployment.yaml`. **Two things the naive
+    `helm/redis/templates/deployment.yaml`. **Two things the naive
     approach gets wrong:** (1) the readiness probe (`redis-cli ping`) will
     return `NOAUTH` once auth is on and the pod never goes Ready — make it
     auth-aware (`redis-cli -a $(REDIS_PASSWORD) ping` or set `REDISCLI_AUTH`);
@@ -446,7 +444,7 @@ P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
     the app would receive a literal, unexpanded string. Instead carry the
     fully-formed URI in the Secret (it already flows through each app
     Deployment's `secretRef` envFrom): in prod via item 10's ExternalSecret,
-    in dev via the manually-created Secret. Bump `helm/urle-chart/charts/redis/Chart.yaml`
+    in dev via the manually-created Secret. Bump `helm/redis/Chart.yaml`
     and the umbrella. Verify: `redis-cli -h redis ping` without auth fails
     with `NOAUTH`; app rate-limiting still works.
 
@@ -456,7 +454,7 @@ P0/P1/P2/P3 are preserved via the `[P#]` tag on each item.
     counts are static (`replicaCount` in each `values-{dev,prod}.yaml`);
     nothing reacts to load, and `urle-redirect` is the stated hot path.
     Add `templates/hpa.yaml` to each of
-    `helm/urle-chart/charts/urle-{auth,dashboard,redirect}`, gated by an
+    `helm/{auth,dashboard,redirect}`, gated by an
     `autoscaling.enabled`/`minReplicas`/`maxReplicas`/`targetCPUUtilization`
     value block. Depends on items 3 (Metrics Server, for CPU metrics) and 4
     (Karpenter, or scaled-up replicas sit `Pending`). Verify: `kubectl get
@@ -551,9 +549,7 @@ audit (A–G) are folded into the numbered items below.
 - Cluster-level installs mirror `terraform/modules/argocd/`: a module with
   `main.tf` (a pinned `helm_release`), `variables.tf`, `versions.tf`
   (`hashicorp/helm ~> 2.16`), `providers.tf` (the `helm` provider
-  authenticated via `aws eks get-token` exec), `outputs.tf`, and `data.tf`/
-  `locals.tf` when the module has lookups or computed values to keep out of
-  `main.tf` — plus one
+  authenticated via `aws eks get-token` exec), `outputs.tf` — plus one
   Terragrunt unit per env under `terraform/terragrunt/{dev,prod}/<name>/terragrunt.hcl`
   with a `dependency "eks"` block (and `mock_outputs` for `validate`/`plan`).
   The AWS provider is auto-generated by the root `terraform/terragrunt/root.hcl`
@@ -562,7 +558,7 @@ audit (A–G) are folded into the numbered items below.
 - Cross-cutting K8s objects (span more than one subchart) live in
   `helm/urle-chart/templates/`, gated by a `values.yaml` flag, exactly like
   `ingress.yaml`/`configmap.yaml`.
-- Per-service K8s objects live in `helm/urle-chart/charts/urle-{auth,dashboard,redirect}/templates/`,
+- Per-service K8s objects live in `helm/{auth,dashboard,redirect}/templates/`,
   gated by that chart's own `values.yaml`, using the existing helpers
   (`include "urle-auth.fullname"`, the `app: <fullname>` selector label).
 - Pod selector label is `app: urle-auth` / `app: urle-dashboard` /
@@ -692,12 +688,12 @@ dependencies.
   `helm/urle-chart/Chart.yaml`. Verify: `kubectl delete secret
   urlshortener-secrets -n urle-prod` → ESO recreates it within the refresh
   interval.
-- **Item 11 (Redis auth).** Edit `helm/urle-chart/charts/redis/templates/deployment.yaml` —
+- **Item 11 (Redis auth).** Edit `helm/redis/templates/deployment.yaml` —
   `args: [--requirepass, $(REDIS_PASSWORD)]` sourced via `secretKeyRef`
   from the extended `urlshortener-secrets`, and **fix the readiness probe**:
   `redis-cli ping` returns `NOAUTH` once auth is on and the pod never goes
   Ready, so make it auth-aware (`redis-cli -a $(REDIS_PASSWORD) ping` or set
-  `REDISCLI_AUTH`). Edit `helm/urle-chart/charts/redis/values.yaml`
+  `REDISCLI_AUTH`). Edit `helm/redis/values.yaml`
   (`auth.enabled`/`existingSecret`/`passwordKey`). **Do not** put the
   password-bearing `RATELIMIT_STORAGE_URI` in the umbrella ConfigMap —
   `$(VAR)` is never expanded for `envFrom`-injected ConfigMap values (only
@@ -705,7 +701,7 @@ dependencies.
   literal `$(REDIS_PASSWORD)` string. Carry the fully-formed URI in the
   Secret instead (it already flows through each app Deployment's `secretRef`
   envFrom): in prod via item 10's ExternalSecret, in dev via the
-  manually-created Secret. Bump `helm/urle-chart/charts/redis/Chart.yaml` and the umbrella.
+  manually-created Secret. Bump `helm/redis/Chart.yaml` and the umbrella.
   Verify: unauthenticated `redis-cli -h redis ping` returns `NOAUTH`; app
   rate-limiting still works.
 
@@ -772,11 +768,11 @@ parallelizable once item 12's Phase 0 dependencies (3, 4) are met.
   rollout. Verify: a manifest with a root/privileged container is rejected
   at apply time.
 - **Item 18 (dedicated ServiceAccounts) — parallel with 17, no
-  dependency.** New `helm/urle-chart/charts/urle-{auth,dashboard,redirect}/templates/serviceaccount.yaml`
+  dependency.** New `helm/{auth,dashboard,redirect}/templates/serviceaccount.yaml`
   (`automountServiceAccountToken: false`), gated by `serviceAccount.create`.
   Edit each `deployment.yaml` (set `spec.template.spec.serviceAccountName`)
   and `values.yaml`; bump each `Chart.yaml` + umbrella. Also add
-  `serviceAccountName` to `helm/urle-chart/charts/urle-dashboard/templates/init-db-job.yaml`
+  `serviceAccountName` to `helm/dashboard/templates/init-db-job.yaml`
   for consistency. Verify: `kubectl get sa -n urle-prod` shows one per
   service, not just `default`.
 

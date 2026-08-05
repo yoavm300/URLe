@@ -3,6 +3,8 @@
 # role is assumed (via the chart's SecretStore jwt.serviceAccountRef) by the
 # in-namespace SA the umbrella chart creates — trust is scoped to that SA
 # subject, permissions to urle/<env>/* only.
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
 
 resource "helm_release" "external_secrets" {
   name             = "external-secrets"

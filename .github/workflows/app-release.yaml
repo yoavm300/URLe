@@ -50,10 +50,9 @@ jobs:
           bump_patch() { awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}'; }
 
           for svc in auth dashboard redirect; do
-            chart="helm/urle-chart/charts/urle-$svc/Chart.yaml"
-            yq -i ".appVersion = \"$VERSION\"" "$chart"
-            app_chart=$(yq '.version' "$chart" | bump_patch)
-            yq -i ".version = \"$app_chart\"" "$chart"
+            yq -i ".appVersion = \"$VERSION\"" "helm/$svc/Chart.yaml"
+            app_chart=$(yq '.version' "helm/$svc/Chart.yaml" | bump_patch)
+            yq -i ".version = \"$app_chart\"" "helm/$svc/Chart.yaml"
             yq -i "(.dependencies[] | select(.name == \"urle-$svc\") | .version) = \"$app_chart\"" helm/urle-chart/Chart.yaml
           done
 

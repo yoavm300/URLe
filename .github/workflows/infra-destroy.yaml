@@ -105,12 +105,17 @@ jobs:
           if aws eks describe-cluster --name "$CLUSTER" >/dev/null 2>&1; then
             aws eks update-kubeconfig --name "$CLUSTER"
             for kind in externalsecrets.external-secrets.io secretstores.external-secrets.io clustersecretstores.external-secrets.io; do
+              # --ignore-not-found only covers a missing named object, not a
+              # missing resource *type* — kubectl get still exits 1 (and, under
+              # the runner's default `bash -e`, kills the whole step) if that
+              # kind's CRD was already removed by an earlier partial destroy.
               kubectl get "$kind" -A --ignore-not-found \
                   -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
                 | while read -r ns name; do
                     [ -z "$name" ] && continue
                     kubectl patch "$kind" "$name" ${ns:+-n "$ns"} --type=merge -p '{"metadata":{"finalizers":[]}}' || true
-                  done
+                  done \
+                || true
             done
           fi
       - name: Terragrunt destroy

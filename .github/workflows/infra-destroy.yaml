@@ -89,6 +89,30 @@ jobs:
             aws ec2 terminate-instances --instance-ids $ids
             aws ec2 wait instance-terminated --instance-ids $ids
           fi
+      # ArgoCD deploys the app's ExternalSecret/SecretStore CRs outside
+      # Terraform state (urle-chart via GitOps). The argocd unit is torn down
+      # before external-secrets but doesn't prune them first, so if they're
+      # still around when external-secrets' helm release is uninstalled, the
+      # operator pod (and its finalizer-clearing controller) dies before the
+      # CR's finalizer is removed — the CR sticks in Terminating forever,
+      # blocking the CRD delete and timing out the whole destroy. Strip the
+      # finalizers up front, while the operator is still alive.
+      - name: Clear ExternalSecret/SecretStore finalizers
+        env:
+          CLUSTER: urle-${{ inputs.env }}
+        run: |
+          set -uo pipefail
+          if aws eks describe-cluster --name "$CLUSTER" >/dev/null 2>&1; then
+            aws eks update-kubeconfig --name "$CLUSTER"
+            for kind in externalsecrets.external-secrets.io secretstores.external-secrets.io clustersecretstores.external-secrets.io; do
+              kubectl get "$kind" -A --ignore-not-found \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                | while read -r ns name; do
+                    [ -z "$name" ] && continue
+                    kubectl patch "$kind" "$name" ${ns:+-n "$ns"} --type=merge -p '{"metadata":{"finalizers":[]}}' || true
+                  done
+            done
+          fi
       - name: Terragrunt destroy
         working-directory: terraform/terragrunt/${{ inputs.env }}
         env:

@@ -799,3 +799,83 @@ items above — this list is kept only as a record of what changed:
   Item 3 keeps the Helm fallback.
 - **G — item 10 needs a `(Cluster)SecretStore`, not just an
   `ExternalSecret`.** Item 10 now templates both.
+
+## 12. Full teardown & cold restart (2026-08)
+
+`infra-destroy.yaml` only ever tears down one environment's per-env units
+(`terraform/terragrunt/{dev,prod}/*`), and even there it deliberately excludes
+prod's `acm`/`cloudfront` (§8a item 2). It never touches
+`terraform/terragrunt/global/` or the bootstrap resources from
+`docs/BOOTSTRAP.md` — that's by design, so a normal cost-saving teardown
+cycle doesn't lose the OIDC identity CI needs to bring the environment back.
+
+**Full project teardown** (deleting everything, not just one environment's
+cost) goes further than that workflow reaches, and has no workflow of its own
+— it's manual, in this order (dependents before dependencies; the two
+`terragrunt destroy`s at the top ignore each unit's `exclude` block because
+`exclude` only applies to `run --all`, not a direct single-unit invocation):
+
+1. `terraform/terragrunt/prod/cloudfront` → `terraform/terragrunt/prod/acm`
+   (cloudfront first — ACM refuses to delete a cert still attached to a
+   distribution).
+2. The 3 ECR repos (`urle-auth`/`urle-dashboard`/`urle-redirect`) — via
+   `aws ecr delete-repository --force`, not `terragrunt destroy`: the module
+   (`terraform/modules/ecr`) doesn't set `force_delete`, and a repo holding
+   any pushed image (released images always will) fails a plain destroy.
+3. `terraform/terragrunt/global/route53-public-zone`.
+4. `terraform/terragrunt/global/github-oidc` — last of the Terraform units:
+   this deletes the OIDC provider and all 3 CI roles
+   (`urle-{dev,prod}-cicd`, `urle-release`), so every GitHub Actions AWS
+   identity is gone the moment this lands.
+5. The state bucket (`urle-tfstate-<account-id>`) — only after every unit
+   above has successfully destroyed, since it's the backend all of them just
+   wrote to. It's versioned, so emptying it needs a version/delete-marker
+   purge before `delete-bucket`, not a plain `s3 rm --recursive`.
+
+**Left alone on purpose, not part of "the project's" AWS footprint:** the EC2
+Spot service-linked role from `scripts/bootstrap-state.sh` (AWS-managed,
+account-wide, free). The domain registration and its registrar-side NS
+delegation are also untouched by any of the above — they live outside AWS
+entirely.
+
+### What survives, unaffected
+
+- **Manual SSM parameters** (`docs/BOOTSTRAP.md` step 4 — VPN password hash,
+  RDS master password, `SECRET_KEY`, Redis password, the GitOps PAT at
+  `/urle/global/github/gitops-token`): never created by Terraform, so no
+  destroy touches them. Confirm they're still there before assuming step 4
+  can be skipped on restart: `aws ssm get-parameters-by-path --path /urle
+  --recursive --query 'Parameters[].Name'`.
+- **IAM role ARNs**: deterministic (`arn:aws:iam::<account>:role/urle-{dev,prod}-cicd`,
+  `.../urle-release`) — recreating `github-oidc` reproduces the same ARNs in
+  the same account, so `AWS_DEV_CI_ROLE_ARN`/`AWS_PROD_CI_ROLE_ARN`/
+  `AWS_RELEASE_ROLE_ARN` repo variables do **not** need updating.
+- **ECR repository URLs**: also deterministic (`<account>.dkr.ecr.<region>.amazonaws.com/urle-*`)
+  — no repo variable changes needed, only re-pushing images (next
+  `app-release.yaml` tag, or a manual push for the first one).
+
+### What does NOT survive and needs explicit action on restart
+
+- **ACM certificate ARN** and **Route53 zone ID + NS values**: both random on
+  recreation. Nothing in Terraform hardcodes the old values (they flow via
+  `dependency` outputs), so no code change is needed — but the zone's new NS
+  records must be re-delegated at the domain registrar
+  (`docs/BOOTSTRAP.md` step 5) or `url-e.online` won't resolve. The old
+  delegation pointing at the deleted zone will not do this for you.
+- **`VARS_TOKEN` repo secret**: unrelated to this teardown but currently
+  expired/revoked (401 on the "mark environment as down" step of
+  `infra-destroy.yaml` — see git history around 2026-08-06/07). Rotate it
+  before relying on `<ENV>_UP` repo variables to reflect reality again.
+- **`DEV_UP`/`PROD_UP` repo variables**: set both to `false` once the full
+  teardown above is confirmed complete, so `infra-ci.yaml`'s plan-on-PR gate
+  (§5, §8a item 3) doesn't try to plan against a fully-deleted account.
+
+### Restart procedure
+
+Cold restart after a full teardown is exactly `docs/BOOTSTRAP.md`, steps 1–7,
+run in order from scratch — the full teardown above deliberately removes
+everything that document's steps 1–3 create. Step 4 (manual SSM parameters)
+can be skipped if the "what survives" check above confirms they're still
+present; step 5 (domain delegation) cannot be skipped, per above. Step 7
+(`infra-bootstrap.yaml` dispatch) is the same cold-start entrypoint §8a
+describes for a normal from-nothing environment build.
